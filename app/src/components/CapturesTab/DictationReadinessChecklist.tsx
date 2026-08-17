@@ -8,6 +8,7 @@ import {
   ExternalLink,
   Keyboard,
   Loader2,
+  XCircle,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -106,10 +107,12 @@ export function DictationReadinessChecklist({
   // Memo so the Map identity is stable across renders that don't change
   // activeTasks — otherwise the cleanup effect below saw a fresh Map every
   // render and re-fired on every 1 s poll tick.
-  const downloadByModel = useMemo(() => {
+  const downloadTaskByModel = useMemo(() => {
     const m = new Map<string, ActiveDownloadTask>();
     for (const dl of activeTasks?.downloads ?? []) {
-      if (dl.status === 'downloading') m.set(dl.model_name, dl);
+      if (dl.status === 'downloading' || dl.status === 'error') {
+        m.set(dl.model_name, dl);
+      }
     }
     return m;
   }, [activeTasks]);
@@ -119,7 +122,11 @@ export function DictationReadinessChecklist({
   // for the next readiness poll.
   const prevActive = useRef<Set<string>>(new Set());
   useEffect(() => {
-    const current = new Set(downloadByModel.keys());
+    const current = new Set(
+      Array.from(downloadTaskByModel.values())
+        .filter((task) => task.status === 'downloading')
+        .map((task) => task.model_name),
+    );
     for (const name of prevActive.current) {
       if (!current.has(name)) {
         queryClient.invalidateQueries({ queryKey: ['capture-readiness'] });
@@ -128,7 +135,7 @@ export function DictationReadinessChecklist({
       }
     }
     prevActive.current = current;
-  }, [downloadByModel, queryClient]);
+  }, [downloadTaskByModel, queryClient]);
 
   const downloadMutation = useMutation({
     mutationFn: async ({ modelName }: { gate: ReadinessGate; modelName: string }) =>
@@ -166,30 +173,51 @@ export function DictationReadinessChecklist({
     modelName: string,
     ready: boolean,
   ): React.ReactNode {
-    const task = downloadByModel.get(modelName);
-    const downloading = !ready && !!task;
+    const task = downloadTaskByModel.get(modelName);
+    const downloading = !ready && task?.status === 'downloading';
+    const failed = !ready && task?.status === 'error';
     const pct = progressPercent(task);
     return (
-      <Button
-        size="sm"
-        onClick={() => downloadMutation.mutate({ gate, modelName })}
-        disabled={downloading || downloadMutation.isPending}
-        className="gap-1.5"
-      >
-        {downloading ? (
-          <>
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            {pct != null
-              ? t('captures.readiness.downloadingPercent', { pct })
-              : t('captures.readiness.downloading')}
-          </>
-        ) : (
-          <>
-            <Download className="h-3.5 w-3.5" />
-            {t('captures.readiness.downloadButton')}
-          </>
-        )}
-      </Button>
+      <div className="space-y-2">
+        {failed ? (
+          <p
+            className="flex items-start gap-1.5 text-xs leading-relaxed text-destructive break-words"
+            title={task.error}
+          >
+            <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <span>
+              {t('captures.readiness.downloadFailed')}
+              {task.error ? `：${task.error}` : null}
+            </span>
+          </p>
+        ) : null}
+        <Button
+          size="sm"
+          variant={failed ? 'destructive' : 'default'}
+          onClick={() => downloadMutation.mutate({ gate, modelName })}
+          disabled={downloading || downloadMutation.isPending}
+          className="gap-1.5"
+        >
+          {downloading ? (
+            <>
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              {pct != null
+                ? t('captures.readiness.downloadingPercent', { pct })
+                : t('captures.readiness.downloading')}
+            </>
+          ) : failed ? (
+            <>
+              <Download className="h-3.5 w-3.5" />
+              {t('models.actions.retry')}
+            </>
+          ) : (
+            <>
+              <Download className="h-3.5 w-3.5" />
+              {t('captures.readiness.downloadButton')}
+            </>
+          )}
+        </Button>
+      </div>
     );
   }
 

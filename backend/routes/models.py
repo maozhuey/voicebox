@@ -391,6 +391,7 @@ async def get_model_status():
 async def trigger_model_download(request: models.ModelDownloadRequest):
     """Trigger download of a specific model."""
     from ..backends import get_model_config, get_model_load_func
+    from ..utils.hf_download import run_with_hf_fallback
 
     task_manager = get_task_manager()
     progress_manager = get_progress_manager()
@@ -402,13 +403,30 @@ async def trigger_model_download(request: models.ModelDownloadRequest):
     load_func = get_model_load_func(config)
 
     async def download_in_background():
+        def prepare_mirror_retry(_endpoint: str) -> None:
+            # A failed backend load marks the task terminal before bubbling
+            # the connection error. Re-open both states so the UI continues
+            # to show a real in-flight retry instead of a stale failure.
+            task_manager.start_download(request.model_name)
+            progress_manager.update_progress(
+                model_name=request.model_name,
+                current=0,
+                total=0,
+                filename="Connecting to backup mirror...",
+                status="downloading",
+            )
+
         try:
-            result = load_func()
-            if asyncio.iscoroutine(result):
-                await result
+            await run_with_hf_fallback(load_func, on_retry=prepare_mirror_retry)
             task_manager.complete_download(request.model_name)
+            progress_manager.mark_complete(request.model_name)
         except Exception as e:
-            task_manager.error_download(request.model_name, str(e))
+            error = str(e)
+            # Polling (/tasks/active) and SSE (/models/progress/...) are two
+            # independent UI data sources. Terminal errors must reach both or
+            # the Captures page silently falls back to a Download button.
+            task_manager.error_download(request.model_name, error)
+            progress_manager.mark_error(request.model_name, error)
 
     task_manager.start_download(request.model_name)
 
