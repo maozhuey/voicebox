@@ -14,13 +14,15 @@ services:
       - "127.0.0.1:17600:17493"
 
     volumes:
-      # Bind-mount for generated audio (customize the host path as needed)
-      # Host side:      ./output/
-      # Container side: /app/data/generations/
-      - ./output:/app/data/generations
-
-      # Named volume for profiles, DB, cache (persists across container restarts)
-      - voicebox-data:/app/data
+      # All local entry points must use one data source. On this Mac, ./data is
+      # linked to the desktop app's standard data directory, so Docker sees the
+      # same database, cloned profiles, samples, and generation history. Override
+      # VOICEBOX_DATA_DIR only when intentionally selecting another complete data
+      # directory; never mount generations separately because that would hide part
+      # of the canonical dataset.
+      - type: bind
+        source: ${VOICEBOX_DATA_DIR:-./data}
+        target: /app/data
 
       # HuggingFace model cache (so models aren't re-downloaded on rebuild)
       - huggingface-cache:/home/voicebox/.cache/huggingface
@@ -43,5 +45,4 @@ networks:
     driver: bridge
 
 volumes:
-  voicebox-data:
   huggingface-cache:
