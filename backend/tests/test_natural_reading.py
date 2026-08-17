@@ -1,0 +1,253 @@
+"""Natural-reading prosody planning and audio assembly tests."""
+
+# Chinese full-width punctuation is intentional: recognizing it is the behavior
+# these regression cases verify.
+# ruff: noqa: RUF001
+
+import numpy as np
+import pytest
+from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.orm import sessionmaker
+
+from backend.database import Base, Generation as DBGeneration, VoiceProfile
+from backend.database.migrations import run_migrations
+from backend.models import GenerationRequest, GenerationSettingsUpdate
+from backend.services import history
+from backend.utils.chunked_tts import generate_chunked, plan_natural_reading
+
+SAMPLE_RATE = 1000
+
+
+def test_planner_preserves_line_and_paragraph_breaks():
+    chunks = plan_natural_reading(
+        "第一行。\n第二行。\n\n最后一段！",
+        max_chars=70,
+    )
+
+    assert [(chunk.text, chunk.pause_after_ms) for chunk in chunks] == [
+        ("第一行。", 650),
+        ("第二行。", 1000),
+        ("最后一段！", 0),
+    ]
+
+
+def test_planner_preserves_blank_lines_that_contain_spaces():
+    chunks = plan_natural_reading("第一段。\n   \n第二段。", max_chars=70)
+
+    assert [(chunk.text, chunk.pause_after_ms) for chunk in chunks] == [
+        ("第一段。", 1000),
+        ("第二段。", 0),
+    ]
+
+
+def test_planner_uses_sentence_pauses_without_newlines():
+    chunks = plan_natural_reading("第一句。第二句？最后一句！", max_chars=70)
+
+    assert [(chunk.text, chunk.pause_after_ms) for chunk in chunks] == [
+        ("第一句。", 450),
+        ("第二句？", 450),
+        ("最后一句！", 0),
+    ]
+
+
+def test_planner_splits_long_sentence_at_clause_boundary():
+    text = "这是第一部分内容，需要先介绍清楚，这是第二部分内容，也需要保持自然停顿。"
+
+    chunks = plan_natural_reading(text, max_chars=24)
+
+    assert all(len(chunk.text) <= 24 for chunk in chunks)
+    assert any(chunk.pause_after_ms == 220 for chunk in chunks[:-1])
+    assert "".join(chunk.text for chunk in chunks) == text
+
+
+def test_planner_supports_explicit_pause_tag():
+    chunks = plan_natural_reading("这是重点。[停顿0.8秒]请仔细听。", max_chars=70)
+
+    assert [(chunk.text, chunk.pause_after_ms) for chunk in chunks] == [
+        ("这是重点。", 800),
+        ("请仔细听。", 0),
+    ]
+
+
+def test_planner_treats_semicolon_as_a_breath_boundary():
+    chunks = plan_natural_reading(
+        "请把新录音和文案发给我；或者直接告诉我第二段的准确内容。",
+        max_chars=70,
+    )
+
+    assert [(chunk.text, chunk.pause_after_ms) for chunk in chunks] == [
+        ("请把新录音和文案发给我；", 220),
+        ("或者直接告诉我第二段的准确内容。", 0),
+    ]
+
+
+def test_planner_splits_long_comma_clause_even_below_hard_limit():
+    chunks = plan_natural_reading(
+        "这是一段需要稳定朗读的较长内容，需要在逗号处自然换气后再继续完成后半句。",
+        max_chars=70,
+    )
+
+    assert [(chunk.text, chunk.pause_after_ms) for chunk in chunks] == [
+        ("这是一段需要稳定朗读的较长内容，", 220),
+        ("需要在逗号处自然换气后再继续完成后半句。", 0),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_natural_reading_inserts_real_silence_and_reuses_stable_seed():
+    class FakeBackend:
+        def __init__(self):
+            self.calls = []
+
+        async def generate(self, text, _voice_prompt, _language, seed, _instruct):
+            self.calls.append((text, seed))
+            return np.ones(100, dtype=np.float32), SAMPLE_RATE
+
+    backend = FakeBackend()
+
+    audio, sample_rate = await generate_chunked(
+        backend,
+        "第一句。第二句。",
+        {},
+        natural_reading=True,
+        max_chunk_chars=100,
+        crossfade_ms=50,
+    )
+
+    assert sample_rate == SAMPLE_RATE
+    assert backend.calls[0][0] == "第一句。"
+    assert backend.calls[1][0] == "第二句。"
+    assert backend.calls[0][1] is not None
+    assert backend.calls[0][1] == backend.calls[1][1]
+    assert len(audio) == 650
+    assert np.all(audio[:100] == 1)
+    assert np.all(audio[100:550] == 0)
+    assert np.all(audio[550:] == 1)
+
+
+@pytest.mark.asyncio
+async def test_separate_natural_generations_can_produce_new_takes():
+    class FakeBackend:
+        def __init__(self):
+            self.seeds = []
+
+        async def generate(self, _text, _voice_prompt, _language, seed, _instruct):
+            self.seeds.append(seed)
+            return np.ones(100, dtype=np.float32), SAMPLE_RATE
+
+    backend = FakeBackend()
+    await generate_chunked(backend, "短句。", {}, natural_reading=True)
+    await generate_chunked(backend, "短句。", {}, natural_reading=True)
+
+    assert backend.seeds[0] is not None
+    assert backend.seeds[1] is not None
+    assert backend.seeds[0] != backend.seeds[1]
+
+
+@pytest.mark.asyncio
+async def test_standard_mode_keeps_single_shot_behavior():
+    class FakeBackend:
+        def __init__(self):
+            self.calls = []
+
+        async def generate(self, text, _voice_prompt, _language, seed, _instruct):
+            self.calls.append((text, seed))
+            return np.ones(100, dtype=np.float32), SAMPLE_RATE
+
+    backend = FakeBackend()
+
+    audio, _ = await generate_chunked(
+        backend,
+        "第一句。第二句。",
+        {},
+        natural_reading=False,
+        max_chunk_chars=100,
+        crossfade_ms=50,
+    )
+
+    assert backend.calls == [("第一句。第二句。", None)]
+    assert len(audio) == 100
+
+
+def test_natural_reading_api_models_default_off_and_accept_opt_in():
+    request = GenerationRequest(profile_id="voice-id", text="测试")
+    settings_patch = GenerationSettingsUpdate(natural_reading=True)
+
+    assert request.natural_reading is False
+    assert settings_patch.natural_reading is True
+
+
+def test_migration_adds_natural_reading_without_enabling_existing_data(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'old.db'}")
+    with engine.begin() as connection:
+        connection.execute(text("""
+            CREATE TABLE generations (
+                id VARCHAR PRIMARY KEY,
+                profile_id VARCHAR NOT NULL,
+                text TEXT NOT NULL,
+                language VARCHAR,
+                audio_path VARCHAR,
+                duration FLOAT,
+                seed INTEGER,
+                instruct TEXT,
+                created_at DATETIME
+            )
+        """))
+        connection.execute(text("""
+            INSERT INTO generations (id, profile_id, text, audio_path)
+            VALUES ('existing', 'voice-id', '旧记录', '')
+        """))
+        connection.execute(text("""
+            CREATE TABLE generation_settings (
+                id INTEGER PRIMARY KEY,
+                max_chunk_chars INTEGER NOT NULL DEFAULT 800,
+                crossfade_ms INTEGER NOT NULL DEFAULT 50,
+                normalize_audio BOOLEAN NOT NULL DEFAULT 1,
+                autoplay_on_generate BOOLEAN NOT NULL DEFAULT 1
+            )
+        """))
+        connection.execute(text("INSERT INTO generation_settings (id) VALUES (1)"))
+
+    run_migrations(engine)
+
+    assert "natural_reading" in {
+        column["name"] for column in inspect(engine).get_columns("generations")
+    }
+    assert "natural_reading" in {
+        column["name"] for column in inspect(engine).get_columns("generation_settings")
+    }
+    with engine.connect() as connection:
+        generation_value = connection.execute(
+            text("SELECT natural_reading FROM generations WHERE id = 'existing'")
+        ).scalar_one()
+        setting_value = connection.execute(
+            text("SELECT natural_reading FROM generation_settings WHERE id = 1")
+        ).scalar_one()
+
+    assert generation_value == 0
+    assert setting_value == 0
+
+
+@pytest.mark.asyncio
+async def test_history_remembers_natural_reading_for_retry(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'history.db'}")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine)()
+    session.add(VoiceProfile(id="voice-id", name="测试声音", language="zh"))
+    session.commit()
+
+    response = await history.create_generation(
+        profile_id="voice-id",
+        text="第一段。\n\n第二段。",
+        language="zh",
+        audio_path="",
+        duration=0,
+        seed=None,
+        db=session,
+        natural_reading=True,
+    )
+
+    stored = session.query(DBGeneration).filter_by(id=response.id).one()
+    assert response.natural_reading is True
+    assert stored.natural_reading is True
+    session.close()

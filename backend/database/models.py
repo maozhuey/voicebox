@@ -74,6 +74,9 @@ class Generation(Base):
     instruct = Column(Text)
     engine = Column(String, default="qwen")
     model_size = Column(String, nullable=True)
+    # Records whether paragraph-aware rhythm planning was used so retry and
+    # regenerate preserve the same speaking behavior as the original take.
+    natural_reading = Column(Boolean, nullable=False, default=False)
     status = Column(String, default="completed")
     error = Column(Text, nullable=True)
     is_favorited = Column(Boolean, default=False)
@@ -231,6 +234,9 @@ class GenerationSettings(Base):
     crossfade_ms = Column(Integer, nullable=False, default=50)
     normalize_audio = Column(Boolean, nullable=False, default=True)
     autoplay_on_generate = Column(Boolean, nullable=False, default=True)
+    # Opt-in by default: existing users retain byte-for-byte legacy generation
+    # behavior until they explicitly enable natural reading in settings.
+    natural_reading = Column(Boolean, nullable=False, default=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 

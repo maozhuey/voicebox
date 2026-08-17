@@ -41,6 +41,7 @@ async def run_generation(
     mode: Literal["generate", "retry", "regenerate"],
     max_chunk_chars: Optional[int] = None,
     crossfade_ms: Optional[int] = None,
+    natural_reading: bool = False,
     version_id: Optional[str] = None,
 ) -> None:
     """Execute TTS inference and persist the result.
@@ -90,6 +91,7 @@ async def run_generation(
             gen_kwargs["max_chunk_chars"] = max_chunk_chars
         if crossfade_ms is not None:
             gen_kwargs["crossfade_ms"] = crossfade_ms
+        gen_kwargs["natural_reading"] = natural_reading
 
         audio, sample_rate = await generate_chunked(tts_model, text, voice_prompt, **gen_kwargs)
 
@@ -261,6 +263,7 @@ async def generate_audio_sync(
     normalize: bool = True,
     max_chunk_chars: Optional[int] = None,
     crossfade_ms: Optional[int] = None,
+    natural_reading: bool = False,
 ) -> bytes:
     """Run a TTS generation synchronously and return the resulting wav bytes.
 
@@ -312,6 +315,7 @@ async def generate_audio_sync(
         gen_kwargs["max_chunk_chars"] = max_chunk_chars
     if crossfade_ms is not None:
         gen_kwargs["crossfade_ms"] = crossfade_ms
+    gen_kwargs["natural_reading"] = natural_reading
 
     audio, sample_rate = await generate_chunked(
         tts_model, text, voice_prompt, **gen_kwargs

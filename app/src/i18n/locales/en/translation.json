@@ -837,6 +837,10 @@
     "generation": {
       "title": "Generation",
       "description": "Controls for long text generation. These settings apply to all engines.",
+      "naturalReading": {
+        "title": "Natural reading enhancement",
+        "description": "Reads in sentence- and paragraph-sized units, inserts pauses, and reuses a stable voice seed to reduce long-form voice drift. Supports [停顿0.8秒] in text."
+      },
       "chunkLimit": {
         "title": "Auto-chunking limit",
         "description": "Long text is split into chunks at sentence boundaries. Lower values can improve quality for long outputs.",

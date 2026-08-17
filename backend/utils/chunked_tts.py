@@ -11,6 +11,8 @@ overhead.
 
 import logging
 import re
+import secrets
+from dataclasses import dataclass
 from typing import List, Tuple
 
 import numpy as np
@@ -58,6 +60,148 @@ _ABBREVIATIONS = frozenset(
 # Paralinguistic tags used by Chatterbox Turbo.  The splitter must never
 # cut inside one of these.
 _PARA_TAG_RE = re.compile(r"\[[^\]]*\]")
+
+# Natural-reading mode treats these tags as editorial timing instructions.
+# They are removed before synthesis so the model never tries to pronounce them.
+_EXPLICIT_PAUSE_RE = re.compile(
+    r"\[停顿\s*(\d+(?:\.\d+)?)\s*(秒|毫秒)\]",
+    re.IGNORECASE,
+)
+_SENTENCE_ENDINGS = frozenset("。！？.!?")
+_CLAUSE_ENDINGS = frozenset("，,；;：:、—")
+_STRONG_CLAUSE_ENDINGS = frozenset("；;")
+_NATURAL_BREATH_CHARS = 32
+
+
+@dataclass
+class ProsodyChunk:
+    """A synthesis unit plus the intentional silence that follows it."""
+
+    text: str
+    pause_after_ms: int = 0
+
+
+def _boundary_pause_ms(text: str) -> int:
+    """Return the default pause implied by the final visible character."""
+    stripped = text.rstrip()
+    if not stripped:
+        return 0
+    if stripped[-1] in _SENTENCE_ENDINGS:
+        return 450
+    if stripped[-1] in _CLAUSE_ENDINGS:
+        return 220
+    return 120
+
+
+def _split_natural_segment(text: str, max_chars: int) -> List[ProsodyChunk]:
+    """Split text at every sentence end, then cap long units by clauses."""
+    if not text:
+        return []
+
+    sentence_units: List[str] = []
+    start = 0
+    for index, char in enumerate(text):
+        if char not in _SENTENCE_ENDINGS:
+            continue
+        end = index + 1
+        while end < len(text) and text[end] in "”’\"』」":
+            end += 1
+        sentence_units.append(text[start:end])
+        start = end
+    if start < len(text):
+        sentence_units.append(text[start:])
+
+    # A semicolon marks an intentional change of thought even when the whole
+    # sentence fits under the character cap. Treat it as a breathing boundary
+    # rather than asking one model call to rush across both clauses.
+    breath_units: List[str] = []
+    for sentence in sentence_units:
+        start = 0
+        for index, char in enumerate(sentence):
+            if char in _STRONG_CLAUSE_ENDINGS:
+                breath_units.append(sentence[start : index + 1])
+                start = index + 1
+        if start < len(sentence):
+            breath_units.append(sentence[start:])
+
+    short_breath_units: List[str] = []
+    for unit in breath_units:
+        if len(unit) <= _NATURAL_BREATH_CHARS:
+            short_breath_units.append(unit)
+            continue
+        start = 0
+        for index, char in enumerate(unit):
+            if char in "，,":
+                short_breath_units.append(unit[start : index + 1])
+                start = index + 1
+        if start < len(unit):
+            short_breath_units.append(unit[start:])
+
+    chunks: List[ProsodyChunk] = []
+    for unit in short_breath_units:
+        remaining = unit
+        while len(remaining) > max_chars:
+            window = remaining[:max_chars]
+            split_at = max((window.rfind(mark) for mark in _CLAUSE_ENDINGS), default=-1)
+            if split_at < 0:
+                split_at = window.rfind(" ")
+            if split_at < 0:
+                split_at = max_chars - 1
+            part = remaining[: split_at + 1]
+            chunks.append(ProsodyChunk(part, _boundary_pause_ms(part)))
+            remaining = remaining[split_at + 1 :]
+        if remaining:
+            chunks.append(ProsodyChunk(remaining, _boundary_pause_ms(remaining)))
+
+    return chunks
+
+
+def plan_natural_reading(
+    text: str,
+    max_chars: int = 70,
+) -> List[ProsodyChunk]:
+    """Build a rhythm plan while preserving the author's paragraph structure.
+
+    The source text's punctuation, line breaks, blank lines, and explicit
+    ``[停顿0.8秒]`` tags are business-level timing signals. Single line breaks
+    receive a medium pause, blank lines a paragraph pause, and long sentences
+    are split at clauses so cloned voices do not drift during one long breath.
+    """
+    if max_chars <= 0:
+        raise ValueError("max_chars must be greater than zero")
+
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    chunks: List[ProsodyChunk] = []
+
+    for part in re.split(r"(\n+)", normalized):
+        if not part:
+            continue
+        if part.startswith("\n"):
+            if chunks:
+                newline_pause = 1000 if len(part) >= 2 else 650
+                chunks[-1].pause_after_ms = max(
+                    chunks[-1].pause_after_ms,
+                    newline_pause,
+                )
+            continue
+        if not part.strip():
+            if chunks:
+                chunks[-1].pause_after_ms = max(chunks[-1].pause_after_ms, 1000)
+            continue
+
+        cursor = 0
+        for match in _EXPLICIT_PAUSE_RE.finditer(part):
+            chunks.extend(_split_natural_segment(part[cursor : match.start()], max_chars))
+            if chunks:
+                value = float(match.group(1))
+                pause_ms = int(round(value if match.group(2) == "毫秒" else value * 1000))
+                chunks[-1].pause_after_ms = pause_ms
+            cursor = match.end()
+        chunks.extend(_split_natural_segment(part[cursor:], max_chars))
+
+    if chunks:
+        chunks[-1].pause_after_ms = 0
+    return chunks
 
 
 def split_text_into_chunks(text: str, max_chars: int = DEFAULT_MAX_CHUNK_CHARS) -> List[str]:
@@ -203,6 +347,25 @@ def concatenate_audio_chunks(
     return result
 
 
+def concatenate_audio_with_pauses(
+    chunks: List[np.ndarray],
+    pauses_ms: List[int],
+    sample_rate: int,
+) -> np.ndarray:
+    """Concatenate generated units with deliberate zero-valued silence."""
+    if not chunks:
+        return np.array([], dtype=np.float32)
+
+    pieces: List[np.ndarray] = []
+    for index, chunk in enumerate(chunks):
+        pieces.append(np.asarray(chunk, dtype=np.float32))
+        pause_ms = pauses_ms[index] if index < len(pauses_ms) else 0
+        pause_samples = int(sample_rate * pause_ms / 1000)
+        if pause_samples > 0:
+            pieces.append(np.zeros(pause_samples, dtype=np.float32))
+    return np.concatenate(pieces)
+
+
 async def generate_chunked(
     backend,
     text: str,
@@ -212,6 +375,7 @@ async def generate_chunked(
     instruct: str | None = None,
     max_chunk_chars: int = DEFAULT_MAX_CHUNK_CHARS,
     crossfade_ms: int = 50,
+    natural_reading: bool = False,
     trim_fn=None,
     runaway_detector=None,
 ) -> Tuple[np.ndarray, int]:
@@ -306,11 +470,23 @@ async def generate_chunked(
             chunk_audio = trim_fn(chunk_audio, chunk_sr)
         return np.asarray(chunk_audio, dtype=np.float32), chunk_sr
 
-    chunks = split_text_into_chunks(text, max_chunk_chars)
+    prosody_chunks = (
+        plan_natural_reading(text, min(max_chunk_chars, 70))
+        if natural_reading
+        else [ProsodyChunk(chunk) for chunk in split_text_into_chunks(text, max_chunk_chars)]
+    )
+    chunks = [chunk.text for chunk in prosody_chunks]
+    natural_seed = seed
+    if natural_reading and natural_seed is None:
+        # One take gets one unpredictable seed shared by every chunk. This
+        # keeps the voice stable inside the take while allowing Regenerate to
+        # produce a genuinely different performance.
+        natural_seed = secrets.randbelow(2**31)
 
     if len(chunks) <= 1:
         # Short text — single-shot fast path
-        return await generate_one(text, seed)
+        stable_seed = natural_seed if natural_reading else seed
+        return await generate_one(chunks[0] if chunks else text, stable_seed)
 
     # Long text — chunked generation
     logger.info(
@@ -329,10 +505,13 @@ async def generate_chunked(
             len(chunks),
             len(chunk_text),
         )
-        # Vary the seed per chunk to avoid correlated RNG artefacts,
-        # but keep it deterministic so the same (text, seed) pair
-        # always produces the same output.
-        chunk_seed = (seed + i) if seed is not None else None
+        # Natural-reading chunks reuse one seed because voice identity must stay
+        # stable across paragraph boundaries. Standard mode retains its legacy
+        # varying-seed behavior for backward-compatible output.
+        if natural_reading:
+            chunk_seed = natural_seed
+        else:
+            chunk_seed = (seed + i) if seed is not None else None
 
         chunk_audio, chunk_sr = await generate_one(
             chunk_text,
@@ -343,5 +522,12 @@ async def generate_chunked(
         if sample_rate is None:
             sample_rate = chunk_sr
 
-    audio = concatenate_audio_chunks(audio_chunks, sample_rate, crossfade_ms=crossfade_ms)
+    if natural_reading:
+        audio = concatenate_audio_with_pauses(
+            audio_chunks,
+            [chunk.pause_after_ms for chunk in prosody_chunks],
+            sample_rate,
+        )
+    else:
+        audio = concatenate_audio_chunks(audio_chunks, sample_rate, crossfade_ms=crossfade_ms)
     return audio, sample_rate

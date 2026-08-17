@@ -84,6 +84,8 @@ export interface GenerationRequest {
   personality?: boolean;
   max_chunk_chars?: number;
   crossfade_ms?: number;
+  /** Preserve paragraph structure, synthesize short units, and insert natural pauses. */
+  natural_reading?: boolean;
   normalize?: boolean;
   effects_chain?: EffectConfig[];
 }
@@ -110,6 +112,7 @@ export interface GenerationResponse {
   instruct?: string;
   engine?: string;
   model_size?: string;
+  natural_reading?: boolean;
   status: 'loading_model' | 'generating' | 'completed' | 'failed';
   error?: string;
   is_favorited?: boolean;
@@ -246,6 +249,7 @@ export interface GenerationSettings {
   crossfade_ms: number;
   normalize_audio: boolean;
   autoplay_on_generate: boolean;
+  natural_reading: boolean;
 }
 
 export type GenerationSettingsUpdate = Partial<GenerationSettings>;

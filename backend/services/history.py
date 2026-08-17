@@ -65,6 +65,7 @@ async def create_generation(
     status: str = "completed",
     engine: Optional[str] = "qwen",
     model_size: Optional[str] = None,
+    natural_reading: bool = False,
     source: str = "manual",
 ) -> GenerationResponse:
     """
@@ -83,6 +84,8 @@ async def create_generation(
         status: Generation status (generating, completed, failed)
         engine: TTS engine used (qwen, luxtts, chatterbox, chatterbox_turbo)
         model_size: Model size variant (1.7B, 0.6B) — only relevant for qwen
+        natural_reading: Whether paragraph-aware rhythm planning is enabled.
+            Stored so retries and regenerated takes preserve the original timing mode.
         source: Origin marker stored on the row. ``"manual"`` for regular
             /generate calls; ``"personality_speak"`` for rows created
             by the /profiles/{id}/speak endpoint. Enables filtering the
@@ -102,6 +105,7 @@ async def create_generation(
         instruct=instruct,
         engine=engine,
         model_size=model_size,
+        natural_reading=natural_reading,
         status=status,
         source=source,
         created_at=datetime.utcnow(),
@@ -221,6 +225,7 @@ async def list_generations(
             instruct=generation.instruct,
             engine=generation.engine or "qwen",
             model_size=generation.model_size,
+            natural_reading=bool(generation.natural_reading),
             status=generation.status or "completed",
             error=generation.error,
             is_favorited=bool(generation.is_favorited),

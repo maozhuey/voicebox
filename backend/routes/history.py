@@ -98,6 +98,7 @@ async def get_generation(
         instruct=gen.instruct,
         engine=gen.engine or "qwen",
         model_size=gen.model_size,
+        natural_reading=bool(gen.natural_reading),
         status=gen.status or "completed",
         error=gen.error,
         is_favorited=bool(gen.is_favorited),

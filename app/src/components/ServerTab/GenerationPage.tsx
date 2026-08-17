@@ -18,6 +18,7 @@ export function GenerationPage() {
   const persistedCrossfadeMs = settings?.crossfade_ms ?? 50;
   const normalizeAudio = settings?.normalize_audio ?? true;
   const autoplayOnGenerate = settings?.autoplay_on_generate ?? true;
+  const naturalReading = settings?.natural_reading ?? false;
   // Slider mirrors persist on commit (pointer-up / keyboard-release) only —
   // onValueChange would fire a PATCH for every pointer-move pixel and round-
   // trip mid-drag failures could leave persisted state out of sync with UI.
@@ -59,6 +60,19 @@ export function GenerationPage() {
         title={t('settings.generation.title')}
         description={t('settings.generation.description')}
       >
+        <SettingRow
+          title={t('settings.generation.naturalReading.title')}
+          description={t('settings.generation.naturalReading.description')}
+          htmlFor="naturalReading"
+          action={
+            <Toggle
+              id="naturalReading"
+              checked={naturalReading}
+              onCheckedChange={(v) => update({ natural_reading: v })}
+            />
+          }
+        />
+
         <SettingRow
           title={t('settings.generation.chunkLimit.title')}
           description={t('settings.generation.chunkLimit.description')}

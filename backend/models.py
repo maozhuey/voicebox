@@ -96,6 +96,10 @@ class GenerationRequest(BaseModel):
     crossfade_ms: int = Field(
         default=50, ge=0, le=500, description="Crossfade duration in ms between chunks (0 for hard cut)"
     )
+    natural_reading: bool = Field(
+        default=False,
+        description="Preserve paragraphs and insert natural pauses between short synthesis units",
+    )
     normalize: bool = Field(default=True, description="Normalize output audio volume")
     effects_chain: Optional[List["EffectConfig"]] = Field(
         None, description="Effects chain to apply after generation (overrides profile default)"
@@ -115,6 +119,7 @@ class GenerationResponse(BaseModel):
     instruct: Optional[str] = None
     engine: Optional[str] = "qwen"
     model_size: Optional[str] = None
+    natural_reading: bool = False
     status: str = "completed"
     error: Optional[str] = None
     is_favorited: bool = False
@@ -150,6 +155,7 @@ class HistoryResponse(BaseModel):
     instruct: Optional[str] = None
     engine: Optional[str] = "qwen"
     model_size: Optional[str] = None
+    natural_reading: bool = False
     status: str = "completed"
     error: Optional[str] = None
     is_favorited: bool = False
@@ -293,6 +299,7 @@ class GenerationSettingsResponse(BaseModel):
     crossfade_ms: int = Field(default=50, ge=0, le=500)
     normalize_audio: bool = True
     autoplay_on_generate: bool = True
+    natural_reading: bool = False
 
     class Config:
         from_attributes = True
@@ -305,6 +312,7 @@ class GenerationSettingsUpdate(BaseModel):
     crossfade_ms: Optional[int] = Field(default=None, ge=0, le=500)
     normalize_audio: Optional[bool] = None
     autoplay_on_generate: Optional[bool] = None
+    natural_reading: Optional[bool] = None
 
 
 class MCPClientBindingResponse(BaseModel):

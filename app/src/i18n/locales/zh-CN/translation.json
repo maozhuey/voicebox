@@ -832,6 +832,10 @@
     "generation": {
       "title": "生成",
       "description": "长文本生成的控件。这些设置适用于所有引擎。",
+      "naturalReading": {
+        "title": "自然朗读增强",
+        "description": "按句子和段落拆分朗读，自动加入停顿，并用固定音色种子减少长文后半段声音漂移。支持在文案中插入 [停顿0.8秒]。"
+      },
       "chunkLimit": {
         "title": "自动分块上限",
         "description": "长文本在句子边界处分块。较低的值可以提高长输出的质量。",
