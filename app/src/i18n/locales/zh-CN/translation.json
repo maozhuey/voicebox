@@ -270,9 +270,9 @@
       "defaultEngineHint": "选择该档案时自动使用此引擎。",
       "defaultEffects": "默认效果",
       "defaultEffectsHint": "自动应用于使用此声音的所有新生成的效果。",
-      "personalityLabel": "人物设定",
-      "personalityPlaceholder": "例如:「一位脾气暴躁的海盗,只会用航海比喻说话」",
-      "personalityHint": "这个声音是谁、说话方式如何。会驱动生成页面上的「撰写」按钮和入戏改写开关。留空则两者都隐藏。"
+      "personalityLabel": "任务设定",
+      "personalityPlaceholder": "例如：你是一位朴实的果农，用简短、可信、不夸张的口吻介绍产品卖点。",
+      "personalityHint": "用于生成页面的「撰写」功能：AI 会根据这里的人物身份、表达习惯和内容要求生成新台词。任务设定不会改变声音音色，也不会自动控制朗读情感；朗读风格请使用支持模型的「朗读指令」。留空则隐藏「撰写」按钮。"
     },
     "avatar": {
       "alt": "头像预览"
@@ -646,6 +646,11 @@
   },
   "history": {
     "empty": "暂无语音生成…",
+    "status": {
+      "loadingModel": "正在加载模型…",
+      "generating": "正在生成…",
+      "generatingChunk": "正在生成第 {{current}}/{{total}} 段"
+    },
     "actions": {
       "menu": "操作",
       "play": "播放",
@@ -695,10 +700,24 @@
       "selectFirst": "请先选择声音档案"
     },
     "instruct": {
-      "show": "显示传达说明",
-      "hide": "隐藏传达说明",
-      "tooltip": "传达说明 (语气、情感、节奏)",
-      "placeholder": "传达说明——例如:温柔缓慢地说、威严清晰…"
+      "show": "显示朗读指令",
+      "hide": "隐藏朗读指令",
+      "tooltip": "朗读指令（语气、情感、节奏）",
+      "placeholder": "朗读指令——例如：语速稍慢、语气温暖、表达清晰…"
+    },
+    "naturalReading": {
+      "tooltip": "自然朗读增强"
+    },
+    "cosyvoiceMode": {
+      "label": "CosyVoice 生成方式",
+      "reference": "跟随参考音频（推荐）",
+      "instruct": "按方言指令"
+    },
+    "dialect": {
+      "label": "方言",
+      "mandarin": "普通话",
+      "henan": "河南话",
+      "sichuan": "四川话"
     },
     "voiceSelector": {
       "placeholder": "选择声音…"
@@ -708,16 +727,10 @@
       "profileDefault": "档案默认"
     },
     "compose": {
-      "tooltip": "撰写",
+      "tooltip": "生成测试稿",
       "ariaLabel": "以人物设定撰写一句台词",
       "failedTitle": "撰写失败",
       "failedDescription": "无法根据此人物设定生成文本。"
-    },
-    "persona": {
-      "tooltipActive": "正以人物设定朗读",
-      "tooltipInactive": "以人物设定朗读",
-      "ariaLabelActive": "正以人物设定朗读",
-      "ariaLabelInactive": "以人物设定朗读"
     }
   },
   "main": {

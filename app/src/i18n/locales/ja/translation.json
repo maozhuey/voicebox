@@ -272,7 +272,7 @@
       "defaultEffectsHint": "このボイスで新しく生成するすべてのものに自動適用されるエフェクトです。",
       "personalityLabel": "パーソナリティ",
       "personalityPlaceholder": "例:「航海の比喩でしか話さない不機嫌な海賊」",
-      "personalityHint": "このボイスがどんな人物で、どのように話すか。生成ページの「Compose」ボタンとキャラクター書き換えトグルに反映されます。空欄にすると両方とも表示されません。"
+      "personalityHint": "人物像、話し方、内容要件に基づいて「Compose」で新しい台詞を生成するために使用します。声質を変えたり、読み上げ感情を自動制御したりはしません。空欄にすると「Compose」を非表示にします。"
     },
     "avatar": {
       "alt": "アバタープレビュー"
@@ -700,6 +700,9 @@
       "tooltip": "デリバリー指示(トーン、感情、ペース)",
       "placeholder": "デリバリー指示 — 例:暖かくゆっくり話す、はっきりと威厳をもって…"
     },
+    "naturalReading": {
+      "tooltip": "自然な読み上げを強化"
+    },
     "voiceSelector": {
       "placeholder": "ボイスを選択…"
     },
@@ -712,12 +715,6 @@
       "ariaLabel": "キャラクターになりきって一文を生成",
       "failedTitle": "Compose に失敗しました",
       "failedDescription": "このパーソナリティからテキストを生成できませんでした。"
-    },
-    "persona": {
-      "tooltipActive": "キャラクターとして発話中",
-      "tooltipInactive": "キャラクターとして発話",
-      "ariaLabelActive": "キャラクターとして発話中",
-      "ariaLabelInactive": "キャラクターとして発話"
     }
   },
   "main": {

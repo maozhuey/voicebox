@@ -12,7 +12,7 @@ export interface VoiceProfileCreate {
   preset_voice_id?: string;
   design_prompt?: string;
   default_engine?: string;
-  /** Free-form character prompt used by compose and the `/generate` personality-rewrite path. */
+  /** Free-form task setting used by Compose to generate new lines. */
   personality?: string;
 }
 
@@ -70,7 +70,7 @@ export interface GenerationRequest {
   text: string;
   language: LanguageCode;
   seed?: number;
-  model_size?: '1.7B' | '0.6B' | '1B' | '3B';
+  model_size?: '1.7B' | '0.6B' | '1B' | '3B' | 'rl' | 'base';
   engine?:
     | 'qwen'
     | 'qwen_custom_voice'
@@ -78,10 +78,13 @@ export interface GenerationRequest {
     | 'chatterbox'
     | 'chatterbox_turbo'
     | 'tada'
-    | 'kokoro';
+    | 'kokoro'
+    | 'cosyvoice';
   instruct?: string;
-  /** When true and the profile has a personality prompt, input text is rewritten in-character before TTS. */
-  personality?: boolean;
+  /** CosyVoice strategy: follow the reference sample or apply text instructions. */
+  cosyvoice_mode?: 'reference' | 'instruct';
+  /** Chinese dialect control for CosyVoice instruct mode. */
+  dialect?: 'mandarin' | 'henan' | 'sichuan';
   max_chunk_chars?: number;
   crossfade_ms?: number;
   /** Preserve paragraph structure, synthesize short units, and insert natural pauses. */
@@ -114,6 +117,8 @@ export interface GenerationResponse {
   model_size?: string;
   natural_reading?: boolean;
   status: 'loading_model' | 'generating' | 'completed' | 'failed';
+  progress_current?: number;
+  progress_total?: number;
   error?: string;
   is_favorited?: boolean;
   created_at: string;

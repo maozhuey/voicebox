@@ -75,7 +75,9 @@ import { displayLabelForKey, modifierSideHint } from '@/lib/utils/keyCodes';
 import { useGenerationStore } from '@/stores/generationStore';
 import { usePlayerStore } from '@/stores/playerStore';
 
-const CAPTURE_AUDIO_MIME = 'audio/*,.wav,.mp3,.m4a,.flac,.ogg,.webm';
+// Videos are accepted for meeting/screen recordings. The backend extracts
+// their audio track and always hands Whisper a WAV, so no video is stored.
+const CAPTURE_MEDIA_MIME = 'audio/*,video/mp4,video/quicktime,video/x-matroska,video/x-msvideo,.wav,.mp3,.m4a,.flac,.ogg,.webm,.mp4,.mov,.mkv,.avi';
 
 function formatDuration(ms?: number | null): string {
   if (!ms || ms < 0) return '0:00';
@@ -438,14 +440,14 @@ export function CapturesTab() {
       <input
         ref={uploadInputRef}
         type="file"
-        accept={CAPTURE_AUDIO_MIME}
+        accept={CAPTURE_MEDIA_MIME}
         onChange={(e) => handleUploadFile(e, 'file')}
         className="hidden"
       />
       <input
         ref={fileInputRef}
         type="file"
-        accept={CAPTURE_AUDIO_MIME}
+        accept={CAPTURE_MEDIA_MIME}
         onChange={(e) => handleUploadFile(e, 'file')}
         className="hidden"
       />

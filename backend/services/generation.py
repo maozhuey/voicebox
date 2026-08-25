@@ -26,6 +26,25 @@ from ..database import get_db
 from ..utils.tasks import get_task_manager
 
 
+def _chunking_options(engine: str, max_chunk_chars: Optional[int]) -> dict:
+    """Return engine-specific chunk limits without changing public settings.
+
+    CosyVoice 3 zero-shot cloning is unstable for tiny calls and its own text
+    frontend is tuned around roughly 60–80 tokens. Voicebox therefore groups
+    visually separated short lines into 45–100 character semantic blocks.
+    Other engines retain their existing chunk behavior.
+    """
+    if engine != "cosyvoice":
+        return {"max_chunk_chars": max_chunk_chars} if max_chunk_chars is not None else {}
+
+    requested_limit = max_chunk_chars if max_chunk_chars is not None else 800
+    return {
+        "max_chunk_chars": min(requested_limit, 100),
+        "natural_chunk_max_chars": 100,
+        "natural_chunk_min_chars": 45,
+    }
+
+
 async def run_generation(
     *,
     generation_id: str,
@@ -87,11 +106,24 @@ async def run_generation(
             trim_fn=trim_fn,
             runaway_detector=runaway_detector,
         )
-        if max_chunk_chars is not None:
-            gen_kwargs["max_chunk_chars"] = max_chunk_chars
+        gen_kwargs.update(_chunking_options(engine, max_chunk_chars))
         if crossfade_ms is not None:
             gen_kwargs["crossfade_ms"] = crossfade_ms
         gen_kwargs["natural_reading"] = natural_reading
+
+        async def report_chunk_progress(current: int, total: int) -> None:
+            # Persist progress because the desktop can reload while generation
+            # continues; the SSE endpoint and history API then agree on the
+            # exact segment currently being synthesized.
+            await history.update_generation_status(
+                generation_id,
+                "generating",
+                bg_db,
+                progress_current=current,
+                progress_total=total,
+            )
+
+        gen_kwargs["progress_callback"] = report_chunk_progress
 
         audio, sample_rate = await generate_chunked(tts_model, text, voice_prompt, **gen_kwargs)
 
@@ -311,8 +343,7 @@ async def generate_audio_sync(
         trim_fn=trim_fn,
         runaway_detector=runaway_detector,
     )
-    if max_chunk_chars is not None:
-        gen_kwargs["max_chunk_chars"] = max_chunk_chars
+    gen_kwargs.update(_chunking_options(engine, max_chunk_chars))
     if crossfade_ms is not None:
         gen_kwargs["crossfade_ms"] = crossfade_ms
     gen_kwargs["natural_reading"] = natural_reading

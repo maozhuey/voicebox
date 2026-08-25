@@ -63,11 +63,23 @@ setup-python:
             {{ pip }} install torch torchaudio --index-url "$torch_index"
         fi
     fi
+    # openai-whisper==20231117 imports pkg_resources while building. Keep a
+    # compatible setuptools and bypass pip's newer isolated build environment.
+    {{ pip }} install setuptools==80.10.2 -q
     {{ pip }} install -r {{ backend_dir }}/requirements.txt
+    {{ pip }} install --no-build-isolation openai-whisper==20231117
     # Chatterbox pins numpy<1.26 / torch==2.6 which break on Python 3.12+
     {{ pip }} install --no-deps chatterbox-tts
     # HumeAI TADA pins torch>=2.7,<2.8 which conflicts with our torch>=2.1
     {{ pip }} install --no-deps hume-tada
+    # CosyVoice has no PyPI inference package. Keep its source revision fixed
+    # so local development and PyInstaller builds execute identical code.
+    if [ ! -d "{{ backend_dir }}/vendors/CosyVoice/.git" ]; then
+        mkdir -p {{ backend_dir }}/vendors
+        git clone --recursive https://github.com/FunAudioLLM/CosyVoice.git {{ backend_dir }}/vendors/CosyVoice
+        git -C {{ backend_dir }}/vendors/CosyVoice checkout 074ca6dc9e80a2f424f1f74b48bdd7d3fea531cc
+        git -C {{ backend_dir }}/vendors/CosyVoice submodule update --init --recursive
+    fi
     # Apple Silicon: install MLX backend
     if [ "$(uname -m)" = "arm64" ] && [ "$(uname)" = "Darwin" ]; then
         echo "Detected Apple Silicon — installing MLX dependencies..."
@@ -95,6 +107,7 @@ setup-python:
     }
     Write-Host "Installing Python dependencies..."
     & "{{ python }}" -m pip install --upgrade pip -q
+    & "{{ pip }}" install setuptools==80.10.2 -q
     $gpus = Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name; \
     Write-Host "Detected GPUs: $($gpus -join ', ')"; \
     $hasNvidia = ($gpus | Where-Object { $_ -match 'NVIDIA' }).Count -gt 0; \
@@ -113,8 +126,15 @@ setup-python:
         Write-Host "  pip install intel-extension-for-pytorch --index-url https://download.pytorch.org/whl/xpu"; \
     }
     & "{{ pip }}" install -r {{ backend_dir }}/requirements.txt
+    & "{{ pip }}" install --no-build-isolation openai-whisper==20231117
     & "{{ pip }}" install --no-deps chatterbox-tts
     & "{{ pip }}" install --no-deps hume-tada
+    if (-not (Test-Path "{{ backend_dir }}/vendors/CosyVoice/.git")) { \
+        New-Item -ItemType Directory -Force -Path "{{ backend_dir }}/vendors" | Out-Null; \
+        git clone --recursive https://github.com/FunAudioLLM/CosyVoice.git "{{ backend_dir }}/vendors/CosyVoice"; \
+        git -C "{{ backend_dir }}/vendors/CosyVoice" checkout 074ca6dc9e80a2f424f1f74b48bdd7d3fea531cc; \
+        git -C "{{ backend_dir }}/vendors/CosyVoice" submodule update --init --recursive; \
+    }
     & "{{ pip }}" install git+https://github.com/QwenLM/Qwen3-TTS.git
     & "{{ pip }}" install pyinstaller ruff pytest pytest-asyncio -q
     Write-Host "Python environment ready."

@@ -28,6 +28,12 @@ logger = logging.getLogger(__name__)
 
 
 VALID_SOURCES = {"dictation", "recording", "file"}
+CAPTURE_AUDIO_EXTENSIONS = {".wav", ".mp3", ".m4a", ".flac", ".ogg", ".webm"}
+# A capture can originate from a meeting recording or screen recording. Keep
+# the video suffix while decoding so librosa/audioread can identify the
+# container and extract its audio track; Whisper still receives canonical WAV.
+CAPTURE_VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".avi"}
+SUPPORTED_CAPTURE_EXTENSIONS = CAPTURE_AUDIO_EXTENSIONS | CAPTURE_VIDEO_EXTENSIONS
 # Suffixes whisper's miniaudio loader can read directly. Anything outside
 # this set has to go through librosa for decode + a soundfile transcode
 # before whisper sees it.
@@ -72,7 +78,7 @@ async def create_capture(
 
     capture_id = str(uuid.uuid4())
     suffix = Path(filename).suffix.lower() or ".wav"
-    if suffix not in (".wav", ".mp3", ".m4a", ".flac", ".ogg", ".webm"):
+    if suffix not in SUPPORTED_CAPTURE_EXTENSIONS:
         suffix = ".wav"
 
     raw_path = config.get_captures_dir() / f"{capture_id}{suffix}"
@@ -195,6 +201,7 @@ async def refine_capture(
         row.transcript_raw or "",
         flags,
         model_size=model_size,
+        language=row.language,
     )
 
     row.transcript_refined = refined

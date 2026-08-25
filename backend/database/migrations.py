@@ -192,6 +192,10 @@ def _migrate_generations(engine, inspector, tables: set[str]) -> None:
             "natural_reading BOOLEAN NOT NULL DEFAULT 0",
             "natural_reading",
         )
+    if "progress_current" not in columns:
+        _add_column(engine, "generations", "progress_current INTEGER", "progress_current")
+    if "progress_total" not in columns:
+        _add_column(engine, "generations", "progress_total INTEGER", "progress_total")
 
 
 def _migrate_generation_settings(engine, inspector, tables: set[str]) -> None:

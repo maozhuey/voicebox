@@ -137,6 +137,16 @@ export function FloatingGenerateBox({
 
   // Sync engine selection to global store so ProfileList can filter
   const watchedEngine = form.watch('engine');
+  const watchedLanguage = form.watch('language');
+  const watchedCosyvoiceMode = form.watch('cosyvoiceMode');
+  const supportsCosyvoiceMode = watchedEngine === 'cosyvoice';
+  const supportsInstruct =
+    watchedEngine === 'qwen_custom_voice' ||
+    (watchedEngine === 'cosyvoice' && watchedCosyvoiceMode === 'instruct');
+  const supportsDialect =
+    watchedEngine === 'cosyvoice' &&
+    watchedLanguage === 'zh' &&
+    watchedCosyvoiceMode === 'instruct';
   useEffect(() => {
     if (watchedEngine) {
       setSelectedEngine(watchedEngine);
@@ -151,6 +161,7 @@ export function FloatingGenerateBox({
     | 'chatterbox_turbo'
     | 'tada'
     | 'kokoro'
+    | 'cosyvoice'
     | 'qwen_custom_voice';
   useEffect(() => {
     if (selectedProfile?.language) {
@@ -190,10 +201,6 @@ export function FloatingGenerateBox({
       (!selectedProfile.effects_chain || selectedProfile.effects_chain.length === 0)
     ) {
       setSelectedPresetId(null);
-    }
-    // Persona toggle only applies when the profile has a personality prompt.
-    if (selectedProfile && !selectedProfile.personality?.trim()) {
-      form.setValue('personality', false);
     }
   }, [selectedProfile, effectPresets, form]);
 
@@ -389,9 +396,9 @@ export function FloatingGenerateBox({
                   )}
                 </AnimatePresence>
 
-                {/* Persona — rewrite input through the profile's personality LLM before TTS. */}
+                {/* Per-task natural reading override; its initial state comes from global settings. */}
                 <AnimatePresence>
-                  {selectedProfile?.personality?.trim() && (
+                  {isExpanded && (
                     <motion.div
                       initial={{ opacity: 0, scale: 0.8 }}
                       animate={{ opacity: 1, scale: 1 }}
@@ -400,45 +407,42 @@ export function FloatingGenerateBox({
                     >
                       <FormField
                         control={form.control}
-                        name="personality"
-                        render={({ field }) => {
-                          const active = !!field.value;
-                          return (
-                            <FormItem className="space-y-0">
-                              <FormControl>
-                                <div className="group relative">
-                                  <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="icon"
-                                    onClick={() => field.onChange(!active)}
-                                    className={cn(
-                                      'h-10 w-10 rounded-full transition-all duration-200',
-                                      active
-                                        ? 'bg-accent text-accent-foreground border border-accent hover:bg-accent/90'
-                                        : 'bg-card border border-border hover:bg-background/50',
-                                    )}
-                                    aria-label={active ? t('generation.persona.ariaLabelActive') : t('generation.persona.ariaLabelInactive')}
-                                    aria-pressed={active}
-                                  >
-                                    <Wand2 className="h-4 w-4" />
-                                  </Button>
-                                  <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 whitespace-nowrap rounded-md bg-popover px-3 py-1.5 text-xs text-popover-foreground border border-border opacity-0 transition-opacity group-hover:opacity-100 z-[9999]">
-                                    {active ? t('generation.persona.tooltipActive') : t('generation.persona.tooltipInactive')}
-                                  </span>
-                                </div>
-                              </FormControl>
-                            </FormItem>
-                          );
-                        }}
+                        name="naturalReading"
+                        render={({ field }) => (
+                          <FormItem className="space-y-0">
+                            <FormControl>
+                              <div className="group relative">
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => field.onChange(!field.value)}
+                                  className={cn(
+                                    'h-10 w-10 rounded-full transition-all duration-200',
+                                    field.value
+                                      ? 'bg-accent text-accent-foreground border border-accent hover:bg-accent/90'
+                                      : 'bg-card border border-border hover:bg-background/50',
+                                  )}
+                                  aria-label={t('generation.naturalReading.tooltip')}
+                                  aria-pressed={field.value}
+                                >
+                                  <Wand2 className="h-4 w-4" />
+                                </Button>
+                                <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 whitespace-nowrap rounded-md bg-popover px-3 py-1.5 text-xs text-popover-foreground border border-border opacity-0 transition-opacity group-hover:opacity-100 z-[9999]">
+                                  {t('generation.naturalReading.tooltip')}
+                                </span>
+                              </div>
+                            </FormControl>
+                          </FormItem>
+                        )}
                       />
                     </motion.div>
                   )}
                 </AnimatePresence>
 
-                {/* Instruct toggle — only for Qwen CustomVoice, which actually honors the kwarg */}
+                {/* CosyVoice and Qwen CustomVoice both honor additive delivery instructions. */}
                 <AnimatePresence>
-                  {isExpanded && form.watch('engine') === 'qwen_custom_voice' && (
+                  {isExpanded && supportsInstruct && (
                     <motion.div
                       initial={{ opacity: 0, scale: 0.8 }}
                       animate={{ opacity: 1, scale: 1 }}
@@ -507,7 +511,7 @@ export function FloatingGenerateBox({
 
             {/* Additive instruct textarea — shown below main text when toggle is on and engine supports it */}
             <AnimatePresence>
-              {isInstructExpanded && form.watch('engine') === 'qwen_custom_voice' && (
+              {isInstructExpanded && supportsInstruct && (
                 <motion.div
                   initial={{ opacity: 0, height: 0 }}
                   animate={{ opacity: 1, height: 'auto' }}
@@ -599,6 +603,69 @@ export function FloatingGenerateBox({
                   <FormItem className="flex-1 space-y-0">
                     <EngineModelSelector form={form} compact />
                   </FormItem>
+
+                  {supportsCosyvoiceMode && (
+                    <FormField
+                      control={form.control}
+                      name="cosyvoiceMode"
+                      render={({ field }) => (
+                        <FormItem className="flex-1 space-y-0">
+                          <Select onValueChange={field.onChange} value={field.value}>
+                            <FormControl>
+                              <SelectTrigger
+                                className="h-8 text-xs bg-card border-border rounded-full hover:bg-background/50 transition-all"
+                                aria-label={t('generation.cosyvoiceMode.label')}
+                              >
+                                <SelectValue />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent side="top">
+                              <SelectItem value="reference" className="text-xs">
+                                {t('generation.cosyvoiceMode.reference')}
+                              </SelectItem>
+                              <SelectItem value="instruct" className="text-xs">
+                                {t('generation.cosyvoiceMode.instruct')}
+                              </SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <FormMessage className="text-xs" />
+                        </FormItem>
+                      )}
+                    />
+                  )}
+
+                  {supportsDialect && (
+                    <FormField
+                      control={form.control}
+                      name="dialect"
+                      render={({ field }) => (
+                        <FormItem className="flex-1 space-y-0">
+                          <Select onValueChange={field.onChange} value={field.value}>
+                            <FormControl>
+                              <SelectTrigger
+                                className="h-8 text-xs bg-card border-border rounded-full hover:bg-background/50 transition-all"
+                                aria-label={t('generation.dialect.label')}
+                              >
+                                <SelectValue />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent side="top">
+                              <SelectItem value="mandarin" className="text-xs">
+                                {t('generation.dialect.mandarin')}
+                              </SelectItem>
+                              <SelectItem value="henan" className="text-xs">
+                                {t('generation.dialect.henan')}
+                              </SelectItem>
+                              <SelectItem value="sichuan" className="text-xs">
+                                {t('generation.dialect.sichuan')}
+                              </SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <FormMessage className="text-xs" />
+                        </FormItem>
+                      )}
+                    />
+                  )}
 
                   <FormItem className="flex-1 space-y-0">
                     <Select

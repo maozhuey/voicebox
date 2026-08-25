@@ -2,9 +2,10 @@
 Pydantic models for request/response validation.
 """
 
-from pydantic import BaseModel, Field
-from typing import Optional, List
 from datetime import datetime
+from typing import List, Literal, Optional
+
+from pydantic import BaseModel, Field
 
 from .utils.capture_chords import (
     default_push_to_talk_chord,
@@ -83,12 +84,26 @@ class GenerationRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=50000)
     language: str = Field(default="en", pattern="^(zh|en|ja|ko|de|fr|ru|pt|es|it|he|ar|da|el|fi|hi|ms|nl|no|pl|sv|sw|tr)$")
     seed: Optional[int] = Field(None, ge=0)
-    model_size: Optional[str] = Field(default="1.7B", pattern="^(1\\.7B|0\\.6B|1B|3B)$")
+    model_size: Optional[str] = Field(default="1.7B", pattern="^(1\\.7B|0\\.6B|1B|3B|rl|base)$")
     instruct: Optional[str] = Field(None, max_length=500)
-    engine: Optional[str] = Field(default="qwen", pattern="^(qwen|qwen_custom_voice|luxtts|chatterbox|chatterbox_turbo|tada|kokoro)$")
+    cosyvoice_mode: Literal["reference", "instruct"] = Field(
+        default="reference",
+        description=(
+            "CosyVoice generation strategy: reference follows the sample with zero-shot cloning; "
+            "instruct applies dialect and delivery instructions."
+        ),
+    )
+    dialect: Literal["mandarin", "henan", "sichuan"] = Field(
+        default="mandarin",
+        description=(
+            "Chinese dialect control for CosyVoice instruct mode; ignored in reference mode, "
+            "by other engines, and for non-Chinese generation."
+        ),
+    )
+    engine: Optional[str] = Field(default="qwen", pattern="^(qwen|qwen_custom_voice|luxtts|chatterbox|chatterbox_turbo|tada|kokoro|cosyvoice)$")
     personality: bool = Field(
         default=False,
-        description="When true and the profile has a personality prompt, the input text is rewritten in-character before TTS.",
+        description="When true and the profile has a task setting, synthesize the original input without rewriting it.",
     )
     max_chunk_chars: int = Field(
         default=800, ge=100, le=5000, description="Max characters per chunk for long text splitting"
@@ -121,6 +136,8 @@ class GenerationResponse(BaseModel):
     model_size: Optional[str] = None
     natural_reading: bool = False
     status: str = "completed"
+    progress_current: Optional[int] = None
+    progress_total: Optional[int] = None
     error: Optional[str] = None
     is_favorited: bool = False
     source: str = "manual"
@@ -157,6 +174,8 @@ class HistoryResponse(BaseModel):
     model_size: Optional[str] = None
     natural_reading: bool = False
     status: str = "completed"
+    progress_current: Optional[int] = None
+    progress_total: Optional[int] = None
     error: Optional[str] = None
     is_favorited: bool = False
     created_at: datetime
@@ -318,7 +337,7 @@ class GenerationSettingsUpdate(BaseModel):
 class MCPClientBindingResponse(BaseModel):
     """Per-MCP-client voice binding — what voice / engine the server should
     use when a given client_id calls voicebox.speak without args, plus an
-    opt-in personality-rewrite default."""
+    opt-in task-setting reading default that preserves the caller's text."""
 
     client_id: str
     label: Optional[str] = None

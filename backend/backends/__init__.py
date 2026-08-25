@@ -216,6 +216,7 @@ TTS_ENGINES = {
     "chatterbox_turbo": "Chatterbox Turbo",
     "tada": "TADA",
     "kokoro": "Kokoro",
+    "cosyvoice": "CosyVoice 3",
 }
 
 LLM_ENGINES = {
@@ -370,6 +371,26 @@ def _get_non_qwen_tts_configs() -> list[ModelConfig]:
             hf_repo_id="hexgrad/Kokoro-82M",
             size_mb=350,
             languages=["en", "es", "fr", "hi", "it", "pt", "ja", "zh"],
+        ),
+        ModelConfig(
+            model_name="cosyvoice3-0.5b-rl",
+            display_name="CosyVoice 3 0.5B RL (Recommended)",
+            engine="cosyvoice",
+            hf_repo_id="FunAudioLLM/Fun-CosyVoice3-0.5B-2512",
+            model_size="rl",
+            size_mb=5400,
+            supports_instruct=True,
+            languages=["zh", "en", "ja", "ko", "de", "es", "fr", "it", "ru"],
+        ),
+        ModelConfig(
+            model_name="cosyvoice3-0.5b",
+            display_name="CosyVoice 3 0.5B (Base)",
+            engine="cosyvoice",
+            hf_repo_id="FunAudioLLM/Fun-CosyVoice3-0.5B-2512",
+            model_size="base",
+            size_mb=5400,
+            supports_instruct=True,
+            languages=["zh", "en", "ja", "ko", "de", "es", "fr", "it", "ru"],
         ),
     ]
 
@@ -530,7 +551,7 @@ async def load_engine_model(engine: str, model_size: str = "default") -> None:
     backend = get_tts_backend_for_engine(engine)
     if engine in ("qwen", "qwen_custom_voice"):
         await backend.load_model_async(model_size)
-    elif engine == "tada":
+    elif engine in ("tada", "cosyvoice"):
         await backend.load_model(model_size)
     else:
         await backend.load_model()
@@ -547,7 +568,7 @@ async def ensure_model_cached_or_raise(engine: str, model_size: str = "default")
             cfg = c
             break
 
-    if engine in ("qwen", "qwen_custom_voice", "tada"):
+    if engine in ("qwen", "qwen_custom_voice", "tada", "cosyvoice"):
         if not backend._is_model_cached(model_size):
             raise HTTPException(
                 status_code=400,
@@ -598,6 +619,10 @@ def unload_model_by_config(config: ModelConfig) -> bool:
             return True
         return False
 
+    if config.engine == "cosyvoice":
+        backend = get_tts_backend_for_engine(config.engine)
+        return backend.is_loaded() and getattr(backend, "_current_model_size", None) == config.model_size
+
     # All other TTS engines
     backend = get_tts_backend_for_engine(config.engine)
     if backend.is_loaded():
@@ -631,6 +656,10 @@ def check_model_loaded(config: ModelConfig) -> bool:
             loaded_size = getattr(backend, "_current_model_size", None) or getattr(backend, "model_size", None)
             return backend.is_loaded() and loaded_size == config.model_size
 
+        if config.engine == "cosyvoice":
+            backend = get_tts_backend_for_engine(config.engine)
+            return backend.is_loaded() and getattr(backend, "_current_model_size", None) == config.model_size
+
         backend = get_tts_backend_for_engine(config.engine)
         return backend.is_loaded()
     except Exception:
@@ -649,6 +678,9 @@ def get_model_load_func(config: ModelConfig):
         return lambda: tts.get_tts_model().load_model(config.model_size)
 
     if config.engine == "qwen_custom_voice":
+        return lambda: get_tts_backend_for_engine(config.engine).load_model(config.model_size)
+
+    if config.engine == "cosyvoice":
         return lambda: get_tts_backend_for_engine(config.engine).load_model(config.model_size)
 
     if config.engine == "qwen_llm":
@@ -723,6 +755,10 @@ def get_tts_backend_for_engine(engine: str) -> TTSBackend:
             from .qwen_custom_voice_backend import QwenCustomVoiceBackend
 
             backend = QwenCustomVoiceBackend()
+        elif engine == "cosyvoice":
+            from .cosyvoice_backend import CosyVoiceTTSBackend
+
+            backend = CosyVoiceTTSBackend()
         else:
             raise ValueError(f"Unknown TTS engine: {engine}. Supported: {list(TTS_ENGINES.keys())}")
 

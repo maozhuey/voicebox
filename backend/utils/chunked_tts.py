@@ -12,6 +12,7 @@ overhead.
 import logging
 import re
 import secrets
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import List, Tuple
 
@@ -204,6 +205,62 @@ def plan_natural_reading(
     return chunks
 
 
+def merge_short_prosody_chunks(
+    chunks: list[ProsodyChunk],
+    *,
+    min_chars: int,
+    max_chars: int,
+) -> list[ProsodyChunk]:
+    """Merge tiny rhythm units into model-friendly semantic blocks.
+
+    Sentence and paragraph boundaries remain in the text as punctuation. The
+    pause after each merged block comes from its final source unit, so paragraph
+    timing is preserved at synthesis boundaries without forcing the TTS engine
+    to handle three- or four-character calls.
+    """
+    if min_chars <= 0:
+        return chunks
+    if max_chars < min_chars:
+        raise ValueError("max_chars must be greater than or equal to min_chars")
+
+    merged: list[ProsodyChunk] = []
+    current_text = ""
+    current_pause_ms = 0
+
+    for chunk in chunks:
+        if current_text and len(current_text) + len(chunk.text) > max_chars:
+            merged.append(ProsodyChunk(current_text, current_pause_ms))
+            current_text = ""
+
+        current_text += chunk.text
+        current_pause_ms = chunk.pause_after_ms
+
+        # Once the minimum model-friendly size is reached, a paragraph pause
+        # is a useful boundary. Shorter units continue merging across line
+        # breaks because scripts often use blank lines for visual layout.
+        if len(current_text) >= min_chars and current_pause_ms >= 650:
+            merged.append(ProsodyChunk(current_text, current_pause_ms))
+            current_text = ""
+            current_pause_ms = 0
+
+    if current_text:
+        if merged and len(current_text) < min_chars:
+            previous = merged[-1]
+            if len(previous.text) + len(current_text) <= max_chars:
+                merged[-1] = ProsodyChunk(
+                    previous.text + current_text,
+                    current_pause_ms,
+                )
+            else:
+                merged.append(ProsodyChunk(current_text, current_pause_ms))
+        else:
+            merged.append(ProsodyChunk(current_text, current_pause_ms))
+
+    if merged:
+        merged[-1].pause_after_ms = 0
+    return merged
+
+
 def split_text_into_chunks(text: str, max_chars: int = DEFAULT_MAX_CHUNK_CHARS) -> List[str]:
     """Split *text* at natural boundaries into chunks of at most *max_chars*.
 
@@ -376,8 +433,11 @@ async def generate_chunked(
     max_chunk_chars: int = DEFAULT_MAX_CHUNK_CHARS,
     crossfade_ms: int = 50,
     natural_reading: bool = False,
+    natural_chunk_max_chars: int = 70,
+    natural_chunk_min_chars: int = 0,
     trim_fn=None,
     runaway_detector=None,
+    progress_callback: Callable[[int, int], Awaitable[None]] | None = None,
 ) -> Tuple[np.ndarray, int]:
     """Generate audio with automatic chunking for long text.
 
@@ -470,11 +530,19 @@ async def generate_chunked(
             chunk_audio = trim_fn(chunk_audio, chunk_sr)
         return np.asarray(chunk_audio, dtype=np.float32), chunk_sr
 
-    prosody_chunks = (
-        plan_natural_reading(text, min(max_chunk_chars, 70))
-        if natural_reading
-        else [ProsodyChunk(chunk) for chunk in split_text_into_chunks(text, max_chunk_chars)]
-    )
+    if natural_reading:
+        natural_limit = min(max_chunk_chars, natural_chunk_max_chars)
+        prosody_chunks = plan_natural_reading(text, natural_limit)
+        prosody_chunks = merge_short_prosody_chunks(
+            prosody_chunks,
+            min_chars=natural_chunk_min_chars,
+            max_chars=natural_limit,
+        )
+    else:
+        prosody_chunks = [
+            ProsodyChunk(chunk)
+            for chunk in split_text_into_chunks(text, max_chunk_chars)
+        ]
     chunks = [chunk.text for chunk in prosody_chunks]
     natural_seed = seed
     if natural_reading and natural_seed is None:
@@ -486,6 +554,8 @@ async def generate_chunked(
     if len(chunks) <= 1:
         # Short text — single-shot fast path
         stable_seed = natural_seed if natural_reading else seed
+        if progress_callback is not None:
+            await progress_callback(1, 1)
         return await generate_one(chunks[0] if chunks else text, stable_seed)
 
     # Long text — chunked generation
@@ -505,6 +575,8 @@ async def generate_chunked(
             len(chunks),
             len(chunk_text),
         )
+        if progress_callback is not None:
+            await progress_callback(i + 1, len(chunks))
         # Natural-reading chunks reuse one seed because voice identity must stay
         # stable across paragraph boundaries. Standard mode retains its legacy
         # varying-seed behavior for backward-compatible output.

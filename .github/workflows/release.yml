@@ -81,10 +81,15 @@ jobs:
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
+          pip install setuptools==80.10.2
           pip install pyinstaller
           pip install -r backend/requirements.txt
+          pip install --no-build-isolation openai-whisper==20231117
           pip install --no-deps chatterbox-tts
           pip install --no-deps hume-tada
+          git clone --recursive https://github.com/FunAudioLLM/CosyVoice.git backend/vendors/CosyVoice
+          git -C backend/vendors/CosyVoice checkout 074ca6dc9e80a2f424f1f74b48bdd7d3fea531cc
+          git -C backend/vendors/CosyVoice submodule update --init --recursive
 
       - name: Install MLX dependencies (Apple Silicon only)
         if: matrix.backend == 'mlx'
@@ -286,10 +291,15 @@ jobs:
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
+          pip install setuptools==80.10.2
           pip install pyinstaller
           pip install -r backend/requirements.txt
+          pip install --no-build-isolation openai-whisper==20231117
           pip install --no-deps chatterbox-tts
           pip install --no-deps hume-tada
+          git clone --recursive https://github.com/FunAudioLLM/CosyVoice.git backend/vendors/CosyVoice
+          git -C backend/vendors/CosyVoice checkout 074ca6dc9e80a2f424f1f74b48bdd7d3fea531cc
+          git -C backend/vendors/CosyVoice submodule update --init --recursive
 
       - name: Install PyTorch with CUDA 12.8
         run: |
@@ -359,10 +369,15 @@ jobs:
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
+          pip install setuptools==80.10.2
           pip install pyinstaller
           pip install -r backend/requirements.txt
+          pip install --no-build-isolation openai-whisper==20231117
           pip install --no-deps chatterbox-tts
           pip install --no-deps hume-tada
+          git clone --recursive https://github.com/FunAudioLLM/CosyVoice.git backend/vendors/CosyVoice
+          git -C backend/vendors/CosyVoice checkout 074ca6dc9e80a2f424f1f74b48bdd7d3fea531cc
+          git -C backend/vendors/CosyVoice submodule update --init --recursive
 
       - name: Build ROCm server binary (onedir)
         shell: bash

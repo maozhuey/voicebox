@@ -272,7 +272,7 @@
       "defaultEffectsHint": "이 음성으로 새로 생성할 때 자동으로 적용되는 효과입니다.",
       "personalityLabel": "성격",
       "personalityPlaceholder": "예: \"항상 해양 은유로 말하는 심술궂은 해적\"",
-      "personalityHint": "이 음성이 누구인지, 어떻게 말하는지를 정의합니다. 생성 페이지의 작성 버튼과 역할극 전환 토글을 제어합니다. 비워두면 둘 다 숨겨집니다."
+      "personalityHint": "인물, 표현 습관, 콘텐츠 요구사항에 따라 작성 기능에서 새 대사를 생성할 때 사용합니다. 음색을 바꾸거나 낭독 감정을 자동으로 제어하지 않습니다. 비워두면 작성 버튼이 숨겨집니다."
     },
     "avatar": {
       "alt": "아바타 미리보기"
@@ -700,6 +700,9 @@
       "tooltip": "전달 지시사항 (톤, 감정, 속도)",
       "placeholder": "전달 지시사항 — 예: 천천히 따뜻하게 말하기, 권위적으로 명확하게…"
     },
+    "naturalReading": {
+      "tooltip": "자연스러운 낭독 향상"
+    },
     "voiceSelector": {
       "placeholder": "음성 선택…"
     },
@@ -712,12 +715,6 @@
       "ariaLabel": "캐릭터에 맞는 대사 작성",
       "failedTitle": "작성 실패",
       "failedDescription": "이 성격으로 텍스트를 생성할 수 없습니다."
-    },
-    "persona": {
-      "tooltipActive": "캐릭터로 말하는 중",
-      "tooltipInactive": "캐릭터로 말하기",
-      "ariaLabelActive": "캐릭터로 말하는 중",
-      "ariaLabelInactive": "캐릭터로 말하기"
     }
   },
   "main": {

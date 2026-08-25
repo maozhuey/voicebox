@@ -272,7 +272,7 @@
       "defaultEffectsHint": "Effetti applicati automaticamente a tutte le nuove generazioni con questa voce.",
       "personalityLabel": "Personalità",
       "personalityPlaceholder": "es. \"un pirata scontroso che parla solo con metafore marinaresche\"",
-      "personalityHint": "Chi è questa voce e come parla. Guida il pulsante Componi e l'opzione di riscrittura nel personaggio nella pagina di generazione. Lascia vuoto per nasconderli entrambi."
+      "personalityHint": "Usato da Componi per generare nuove battute in base al personaggio, alle sue abitudini espressive e ai requisiti del contenuto. Non cambia la voce e non controlla automaticamente l'interpretazione. Lascia vuoto per nascondere Componi."
     },
     "avatar": {
       "alt": "Anteprima avatar"
@@ -700,6 +700,9 @@
       "tooltip": "Istruzioni di pronuncia (tono, emozione, ritmo)",
       "placeholder": "Istruzioni di pronuncia — es. Parla lentamente con calore, Autorevole e chiaro…"
     },
+    "naturalReading": {
+      "tooltip": "Lettura naturale migliorata"
+    },
     "voiceSelector": {
       "placeholder": "Seleziona una voce…"
     },
@@ -712,12 +715,6 @@
       "ariaLabel": "Componi una battuta nel personaggio",
       "failedTitle": "Composizione non riuscita",
       "failedDescription": "Impossibile generare il testo da questa personalità."
-    },
-    "persona": {
-      "tooltipActive": "Parla nel personaggio",
-      "tooltipInactive": "Parla nel personaggio",
-      "ariaLabelActive": "Parla nel personaggio",
-      "ariaLabelInactive": "Parla nel personaggio"
     }
   },
   "main": {

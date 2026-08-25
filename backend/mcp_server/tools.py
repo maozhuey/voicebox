@@ -239,8 +239,8 @@ async def _speak(
     model_size: str | None = None,
     db,
 ) -> dict[str, Any]:
-    """Delegate to POST /generate — the route handles personality-rewrite
-    internally when ``personality=true`` and the profile has a prompt."""
+    """Delegate to POST /generate; task-setting reading preserves the text
+    submitted by the MCP caller when ``personality=true``."""
     from ..routes.generations import generate_speech
 
     # model_size=None is intentional: generate_speech normalizes it to the

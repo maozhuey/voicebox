@@ -87,9 +87,8 @@ async def create_generation(
         natural_reading: Whether paragraph-aware rhythm planning is enabled.
             Stored so retries and regenerated takes preserve the original timing mode.
         source: Origin marker stored on the row. ``"manual"`` for regular
-            /generate calls; ``"personality_speak"`` for rows created
-            by the /profiles/{id}/speak endpoint. Enables filtering the
-            history view for personality-driven output.
+            /generate calls; ``"personality_reading"`` when task-setting
+            reading was selected. The latter always retains the original text.
 
     Returns:
         Created generation entry
@@ -125,6 +124,8 @@ async def update_generation_status(
     audio_path: Optional[str] = None,
     duration: Optional[float] = None,
     error: Optional[str] = None,
+    progress_current: Optional[int] = None,
+    progress_total: Optional[int] = None,
 ) -> Optional[GenerationResponse]:
     """Update the status of a generation (used by async generation flow)."""
     generation = db.query(DBGeneration).filter_by(id=generation_id).first()
@@ -138,6 +139,10 @@ async def update_generation_status(
         generation.duration = duration
     if error is not None:
         generation.error = error
+    if progress_current is not None:
+        generation.progress_current = progress_current
+    if progress_total is not None:
+        generation.progress_total = progress_total
 
     db.commit()
     db.refresh(generation)
@@ -227,6 +232,8 @@ async def list_generations(
             model_size=generation.model_size,
             natural_reading=bool(generation.natural_reading),
             status=generation.status or "completed",
+            progress_current=generation.progress_current,
+            progress_total=generation.progress_total,
             error=generation.error,
             is_favorited=bool(generation.is_favorited),
             created_at=generation.created_at,

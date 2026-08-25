@@ -38,10 +38,9 @@ class VoiceProfile(Base):
     preset_voice_id = Column(String, nullable=True)  # e.g. "am_adam" — only for preset
     design_prompt = Column(Text, nullable=True)      # text description — only for designed
     default_engine = Column(String, nullable=True)   # auto-selected engine, locked for preset
-    # Free-form character prompt used by the compose button and the
-    # personality-rewrite path on /generate. Describes *what* this voice
-    # says and how, orthogonal to how it sounds (handled by the preset /
-    # cloning metadata above).
+    # Free-form task setting used by the compose button and the task-setting
+    # reading switch on /generate. The switch preserves the user's script;
+    # voice identity remains controlled by the preset / cloning metadata.
     personality = Column(Text, nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -78,12 +77,15 @@ class Generation(Base):
     # regenerate preserve the same speaking behavior as the original take.
     natural_reading = Column(Boolean, nullable=False, default=False)
     status = Column(String, default="completed")
+    # Live synthesis position shown in the history row. These values describe
+    # the chunk currently being processed, not merely completed work.
+    progress_current = Column(Integer, nullable=True)
+    progress_total = Column(Integer, nullable=True)
     error = Column(Text, nullable=True)
     is_favorited = Column(Boolean, default=False)
-    # Origin of this generation — "manual" for plain /generate calls,
-    # "personality_speak" for rows whose text was rewritten through the
-    # profile's personality LLM before TTS. Future sources (bulk import,
-    # agent replies, etc.) can extend this.
+    # Origin of this generation — "manual" for plain /generate calls and
+    # "personality_reading" when task-setting reading was selected. The
+    # latter must still retain the user-entered text verbatim.
     source = Column(String, nullable=False, default="manual")
     created_at = Column(DateTime, default=datetime.utcnow)
 

@@ -270,9 +270,9 @@
       "defaultEngineHint": "Auto-selects this engine when the profile is chosen.",
       "defaultEffects": "Default Effects",
       "defaultEffectsHint": "Effects applied automatically to all new generations with this voice.",
-      "personalityLabel": "Personality",
-      "personalityPlaceholder": "e.g. \"a grumpy pirate who only speaks in nautical metaphors\"",
-      "personalityHint": "Who this voice is and how they talk. Drives the Compose button and the in-character rewrite toggle on the generate page. Leave blank to hide both."
+      "personalityLabel": "Task setting",
+      "personalityPlaceholder": "e.g. You are a down-to-earth grower. Present product benefits briefly, credibly, and without hype.",
+      "personalityHint": "Used by Compose to generate new lines from the character, speaking habits, and content requirements entered here. It does not change the voice or automatically control delivery; use Delivery Instructions on supported models for reading style. Leave blank to hide Compose."
     },
     "avatar": {
       "alt": "Avatar preview"
@@ -646,6 +646,11 @@
   },
   "history": {
     "empty": "No voice generations, yet…",
+    "status": {
+      "loadingModel": "Loading model…",
+      "generating": "Generating…",
+      "generatingChunk": "Generating chunk {{current}}/{{total}}"
+    },
     "actions": {
       "menu": "Actions",
       "play": "Play",
@@ -700,6 +705,20 @@
       "tooltip": "Delivery instructions (tone, emotion, pace)",
       "placeholder": "Delivery instructions — e.g. Speak slowly with warmth, Authoritative and clear…"
     },
+    "naturalReading": {
+      "tooltip": "Enhanced natural reading"
+    },
+    "cosyvoiceMode": {
+      "label": "CosyVoice generation mode",
+      "reference": "Follow reference audio (Recommended)",
+      "instruct": "Use dialect instruction"
+    },
+    "dialect": {
+      "label": "Dialect",
+      "mandarin": "Mandarin",
+      "henan": "Henan dialect",
+      "sichuan": "Sichuan dialect"
+    },
     "voiceSelector": {
       "placeholder": "Select a voice…"
     },
@@ -712,12 +731,6 @@
       "ariaLabel": "Compose a line in character",
       "failedTitle": "Compose failed",
       "failedDescription": "Could not generate text from this personality."
-    },
-    "persona": {
-      "tooltipActive": "Speaking in character",
-      "tooltipInactive": "Speak in character",
-      "ariaLabelActive": "Speaking in character",
-      "ariaLabelInactive": "Speak in character"
     }
   },
   "main": {

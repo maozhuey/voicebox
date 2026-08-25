@@ -272,7 +272,7 @@
       "defaultEffectsHint": "Efectos aplicados automáticamente a todas las nuevas generaciones con esta voz.",
       "personalityLabel": "Personalidad",
       "personalityPlaceholder": "p. ej. \"un pirata gruñón que solo habla con metáforas náuticas\"",
-      "personalityHint": "Quién es esta voz y cómo habla. Impulsa el botón Redactar y el interruptor de reescritura en personaje de la página de generación. Déjalo en blanco para ocultar ambos."
+      "personalityHint": "Se usa en Redactar para generar nuevas frases según el personaje, sus hábitos de expresión y los requisitos de contenido. No cambia la voz ni controla automáticamente la interpretación. Déjalo en blanco para ocultar Redactar."
     },
     "avatar": {
       "alt": "Vista previa del avatar"
@@ -700,6 +700,9 @@
       "tooltip": "Instrucciones de interpretación (tono, emoción, ritmo)",
       "placeholder": "Instrucciones de interpretación — p. ej. Habla despacio y con calidez, Con autoridad y claridad…"
     },
+    "naturalReading": {
+      "tooltip": "Lectura natural mejorada"
+    },
     "voiceSelector": {
       "placeholder": "Selecciona una voz…"
     },
@@ -712,12 +715,6 @@
       "ariaLabel": "Redactar una frase en personaje",
       "failedTitle": "Error al redactar",
       "failedDescription": "No se pudo generar texto a partir de esta personalidad."
-    },
-    "persona": {
-      "tooltipActive": "Hablando en personaje",
-      "tooltipInactive": "Hablar en personaje",
-      "ariaLabelActive": "Hablando en personaje",
-      "ariaLabelInactive": "Hablar en personaje"
     }
   },
   "main": {

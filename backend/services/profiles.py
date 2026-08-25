@@ -24,7 +24,10 @@ from ..utils.images import process_avatar, validate_image
 
 logger = logging.getLogger(__name__)
 
-CLONING_ENGINES = {"qwen", "luxtts", "chatterbox", "chatterbox_turbo", "tada"}
+# These engines accept reference-audio profiles. Keep this in sync with the
+# generation selector: cloned profiles must reach CosyVoice's zero-shot prompt
+# path instead of being rejected before model generation begins.
+CLONING_ENGINES = {"qwen", "luxtts", "chatterbox", "chatterbox_turbo", "tada", "cosyvoice"}
 
 
 def _profile_to_response(

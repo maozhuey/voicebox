@@ -365,10 +365,9 @@ async def update_profile_effects(
 
 # ── Personality endpoint ──────────────────────────────────────────────
 # Only ``/profiles/{id}/compose`` remains — the UI's compose button
-# produces a fresh in-character utterance the user can edit before
-# speaking. Rewrite now happens inside ``/generate`` (and ``/speak``)
-# when ``personality=true``; there is no standalone rewrite/respond/speak
-# endpoint.
+# produces a fresh in-character utterance that the user can edit before
+# speaking. The task-setting reading switch in ``/generate`` and ``/speak``
+# never rewrites submitted text; there is no rewrite/respond/speak endpoint.
 
 
 @router.post(

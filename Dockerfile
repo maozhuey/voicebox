@@ -45,6 +45,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 RUN pip install --no-cache-dir --upgrade pip
+RUN pip install --no-cache-dir setuptools==80.10.2
 
 COPY backend/requirements.txt .
 
@@ -61,10 +62,16 @@ RUN if [ "$PYTORCH_VARIANT" = "rocm" ]; then \
     fi
 
 RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+RUN pip install --no-cache-dir --prefix=/install --no-build-isolation openai-whisper==20231117
 RUN pip install --no-cache-dir --prefix=/install --no-deps chatterbox-tts
 RUN pip install --no-cache-dir --prefix=/install --no-deps hume-tada
 RUN pip install --no-cache-dir --prefix=/install \
     git+https://github.com/QwenLM/Qwen3-TTS.git
+# CosyVoice does not publish a PyPI inference package. Pin the exact audited
+# source revision so the container and desktop server have matching behavior.
+RUN git clone --recursive https://github.com/FunAudioLLM/CosyVoice.git /build/CosyVoice && \
+    git -C /build/CosyVoice checkout 074ca6dc9e80a2f424f1f74b48bdd7d3fea531cc && \
+    git -C /build/CosyVoice submodule update --init --recursive
 
 
 # === Stage 3: Runtime ===
@@ -85,6 +92,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Copy installed Python packages from builder stage
 COPY --from=backend-builder /install /usr/local
+COPY --from=backend-builder --chown=voicebox:voicebox /build/CosyVoice /app/backend/vendors/CosyVoice
 
 # Copy backend application code
 COPY --chown=voicebox:voicebox backend/ /app/backend/

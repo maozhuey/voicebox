@@ -2,6 +2,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
 import { useToast } from '@/components/ui/use-toast';
 import { apiClient } from '@/lib/api/client';
+import type { HistoryListResponse } from '@/lib/api/types';
 import { useGenerationSettings } from '@/lib/hooks/useSettings';
 import { useGenerationStore } from '@/stores/generationStore';
 import { usePlayerStore } from '@/stores/playerStore';
@@ -12,6 +13,8 @@ interface GenerationStatusEvent {
   duration?: number;
   error?: string;
   source?: string;
+  progress_current?: number;
+  progress_total?: number;
 }
 
 // Agent-initiated generations are played by the floating pill, not the
@@ -75,6 +78,30 @@ export function useGenerationProgress() {
       source.onmessage = (event) => {
         try {
           const data: GenerationStatusEvent = JSON.parse(event.data);
+
+          if (data.status === 'loading_model' || data.status === 'generating') {
+            const activeStatus = data.status;
+            // The history row is initially cached from POST /generate. Keep
+            // that cache synchronized with live SSE events so a model that has
+            // started synthesis does not remain visually stuck on
+            // "Loading model..." until the entire audio finishes.
+            queryClient.setQueriesData<HistoryListResponse>({ queryKey: ['history'] }, (cached) => {
+              if (!cached) return cached;
+              return {
+                ...cached,
+                items: cached.items.map((item) =>
+                  item.id === data.id
+                    ? {
+                        ...item,
+                        status: activeStatus,
+                        progress_current: data.progress_current,
+                        progress_total: data.progress_total,
+                      }
+                    : item,
+                ),
+              };
+            });
+          }
 
           if (data.status === 'completed') {
             source.close();

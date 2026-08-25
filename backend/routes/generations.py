@@ -10,7 +10,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from .. import config, models
-from ..services import history, personality, profiles, tts
+from ..services import history, profiles, tts
 from ..database import Generation as DBGeneration, VoiceProfile as DBVoiceProfile, get_db
 from ..services.generation import run_generation
 from ..services.task_queue import cancel_generation as cancel_generation_job, enqueue_generation
@@ -24,6 +24,11 @@ router = APIRouter()
 IMPORTED_AUDIO_PROFILE_NAME = "Imported Audio"
 IMPORT_AUDIO_EXTENSIONS = {".wav", ".mp3", ".flac", ".ogg", ".m4a", ".aac", ".webm"}
 IMPORT_AUDIO_MAX_BYTES = 200 * 1024 * 1024  # 200 MB
+DIALECT_INSTRUCTIONS = {
+    "mandarin": "请用普通话表达。",
+    "henan": "请用河南话表达。",
+    "sichuan": "请用四川话表达。",
+}
 
 
 def _get_or_create_import_profile(db: Session) -> DBVoiceProfile:
@@ -53,6 +58,38 @@ def _resolve_generation_engine(data: models.GenerationRequest, profile) -> str:
     return data.engine or getattr(profile, "default_engine", None) or getattr(profile, "preset_engine", None) or "qwen"
 
 
+def prepare_generation_content(
+    data: models.GenerationRequest,
+    profile: DBVoiceProfile,
+) -> tuple[str, str | None, str]:
+    """Prepare the immutable script that will be synthesized.
+
+    The gold wand in the generate box is a *reading* setting. It must never
+    turn a user's script into an LLM summary before synthesis. Cloned
+    Qwen3-TTS voices do not offer an instruction channel, so their safe
+    behavior is to speak the exact input text.
+    """
+    source = "manual"
+    if data.personality and getattr(profile, "personality", None):
+        source = "personality_reading"
+
+    engine = _resolve_generation_engine(data, profile)
+    instruct = data.instruct
+    if engine == "cosyvoice":
+        if data.cosyvoice_mode == "reference":
+            # 业务规则：参考音频跟随模式必须保持 instruct 为空，后端才会走
+            # inference_zero_shot，并同时使用参考录音及其逐字文本来跟随口音、
+            # 节奏和语气。即使表单里残留旧朗读指令，也不能静默切回 instruct2。
+            instruct = None
+        elif data.language == "zh":
+            # 方言只在“按方言指令”模式生效。把方言约束放在用户朗读指令之前，
+            # 确保 CosyVoice 的每个长文本分段都收到相同设置。
+            dialect_instruct = DIALECT_INSTRUCTIONS[data.dialect]
+            instruct = "\n".join(part for part in (dialect_instruct, data.instruct) if part)
+
+    return data.text, instruct, source
+
+
 @router.post("/generate", response_model=models.GenerationResponse)
 async def generate_speech(
     data: models.GenerationRequest,
@@ -76,17 +113,7 @@ async def generate_speech(
 
     model_size = (data.model_size or "1.7B") if engine_has_model_sizes(engine) else None
 
-    text = data.text
-    source = "manual"
-    if data.personality and getattr(profile, "personality", None):
-        try:
-            llm_result = await personality.rewrite_as_profile(profile.personality, data.text)
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
-        text = llm_result.text.strip()
-        if not text:
-            raise HTTPException(status_code=500, detail="LLM produced empty output; nothing to speak.")
-        source = "personality_speak"
+    text, instruct, source = prepare_generation_content(data, profile)
 
     generation = await history.create_generation(
         profile_id=data.profile_id,
@@ -96,7 +123,7 @@ async def generate_speech(
         duration=0,
         seed=data.seed,
         db=db,
-        instruct=data.instruct,
+        instruct=instruct,
         generation_id=generation_id,
         status="generating",
         engine=engine,
@@ -136,7 +163,7 @@ async def generate_speech(
             seed=data.seed,
             normalize=data.normalize,
             effects_chain=effects_chain_config,
-            instruct=data.instruct,
+            instruct=instruct,
             mode="generate",
             max_chunk_chars=data.max_chunk_chars,
             crossfade_ms=data.crossfade_ms,
@@ -161,6 +188,8 @@ async def retry_generation(generation_id: str, db: Session = Depends(get_db)):
     gen.error = None
     gen.audio_path = ""
     gen.duration = 0
+    gen.progress_current = None
+    gen.progress_total = None
     db.commit()
     db.refresh(gen)
 
@@ -204,6 +233,8 @@ async def regenerate_generation(generation_id: str, db: Session = Depends(get_db
 
     gen.status = "generating"
     gen.error = None
+    gen.progress_current = None
+    gen.progress_total = None
     db.commit()
     db.refresh(gen)
 
@@ -295,6 +326,8 @@ async def get_generation_status(generation_id: str, db: Session = Depends(get_db
                     "status": gen.status or "completed",
                     "duration": gen.duration,
                     "error": gen.error,
+                    "progress_current": gen.progress_current,
+                    "progress_total": gen.progress_total,
                     # Agent-originated sources ("mcp", "rest") skip main-window
                     # autoplay — the floating pill plays those directly.
                     "source": gen.source,

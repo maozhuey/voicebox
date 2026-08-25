@@ -121,6 +121,8 @@ def build_server(cuda=False, rocm=False):
             "--hidden-import",
             "backend.backends.qwen_custom_voice_backend",
             "--hidden-import",
+            "backend.backends.cosyvoice_backend",
+            "--hidden-import",
             "backend.utils.audio",
             "--hidden-import",
             "backend.utils.cache",
@@ -148,6 +150,34 @@ def build_server(cuda=False, rocm=False):
             "backend.backends.chatterbox_backend",
             "--hidden-import",
             "backend.backends.chatterbox_turbo_backend",
+            # CosyVoice 3 dynamically imports its vendored source via the
+            # model YAML. Bundle runtime dependencies plus physical source
+            # files below; PyInstaller cannot discover either statically.
+            "--collect-all",
+            "hyperpyyaml",
+            # CosyVoice's Matcha flow matcher imports Hydra while resolving the
+            # inference YAML. Bundle package data and distribution metadata so
+            # the desktop sidecar can load the downloaded RL model as well.
+            "--collect-all",
+            "hydra",
+            "--collect-all",
+            "omegaconf",
+            "--copy-metadata",
+            "hydra-core",
+            "--collect-all",
+            "matplotlib",
+            "--collect-all",
+            "onnxruntime",
+            "--collect-all",
+            "whisper",
+            "--collect-all",
+            "tiktoken",
+            "--collect-all",
+            "wetext",
+            "--collect-all",
+            "x_transformers",
+            "--copy-metadata",
+            "modelscope",
             # chatterbox multilingual uses spacy_pkuseg for Chinese word
             # segmentation, which ships pickled dict files (dicts/default.pkl)
             # and native .so extensions that --hidden-import alone won't bundle.
@@ -327,6 +357,28 @@ def build_server(cuda=False, rocm=False):
             "mcp",
             "--hidden-import",
             "sse_starlette",
+        ]
+    )
+
+    # CosyVoice is upstream source rather than a PyPI inference package. Keep
+    # the build deterministic by requiring the setup script's pinned checkout
+    # and shipping only the two runtime Python packages, never its .git data.
+    cosyvoice_vendor = backend_dir / "vendors" / "CosyVoice"
+    cosyvoice_source = cosyvoice_vendor / "cosyvoice"
+    matcha_source = cosyvoice_vendor / "third_party" / "Matcha-TTS" / "matcha"
+    cosyvoice_compat = backend_dir / "vendors" / "cosyvoice_compat"
+    if not cosyvoice_source.is_dir() or not matcha_source.is_dir() or not cosyvoice_compat.is_dir():
+        raise FileNotFoundError(
+            "CosyVoice source is missing. Run `just setup-python` before building the Voicebox server."
+        )
+    args.extend(
+        [
+            "--add-data",
+            f"{cosyvoice_source}{os.pathsep}CosyVoice/cosyvoice",
+            "--add-data",
+            f"{matcha_source}{os.pathsep}CosyVoice/third_party/Matcha-TTS/matcha",
+            "--add-data",
+            f"{cosyvoice_compat}{os.pathsep}CosyVoice/compat",
         ]
     )
 
@@ -784,4 +836,3 @@ if __name__ == "__main__":
         build_shim()
     else:
         build_server(cuda=cli_args.cuda, rocm=cli_args.rocm)
-

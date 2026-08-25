@@ -13,7 +13,11 @@ from backend.database import Base, Generation as DBGeneration, VoiceProfile
 from backend.database.migrations import run_migrations
 from backend.models import GenerationRequest, GenerationSettingsUpdate
 from backend.services import history
-from backend.utils.chunked_tts import generate_chunked, plan_natural_reading
+from backend.utils.chunked_tts import (
+    generate_chunked,
+    merge_short_prosody_chunks,
+    plan_natural_reading,
+)
 
 SAMPLE_RATE = 1000
 
@@ -93,6 +97,22 @@ def test_planner_splits_long_comma_clause_even_below_hard_limit():
     ]
 
 
+def test_cosyvoice_style_merging_avoids_tiny_natural_reading_units():
+    text = (
+        "今天介绍油蟠桃。\n\n它的果形很规整。\n\n果面比较光滑。\n\n"
+        "果肉细脆多汁。\n\n甜味也很明显。\n\n成熟时间比较早。\n\n"
+        "种植前建议先试种。\n\n表现稳定后再扩大面积。"
+    )
+    planned = plan_natural_reading(text, max_chars=100)
+
+    merged = merge_short_prosody_chunks(planned, min_chars=45, max_chars=100)
+
+    assert len(merged) < len(planned)
+    assert "".join(chunk.text for chunk in merged) == "".join(chunk.text for chunk in planned)
+    assert all(len(chunk.text) <= 100 for chunk in merged)
+    assert all(len(chunk.text) >= 45 for chunk in merged[:-1])
+
+
 @pytest.mark.asyncio
 async def test_natural_reading_inserts_real_silence_and_reuses_stable_seed():
     class FakeBackend:
@@ -169,6 +189,28 @@ async def test_standard_mode_keeps_single_shot_behavior():
     assert len(audio) == 100
 
 
+@pytest.mark.asyncio
+async def test_chunk_progress_reports_the_segment_currently_being_generated():
+    class FakeBackend:
+        async def generate(self, _text, _voice_prompt, _language, _seed, _instruct):
+            return np.ones(100, dtype=np.float32), SAMPLE_RATE
+
+    progress = []
+
+    async def report_progress(current: int, total: int):
+        progress.append((current, total))
+
+    await generate_chunked(
+        FakeBackend(),
+        "第一句。第二句。第三句。",
+        {},
+        max_chunk_chars=5,
+        progress_callback=report_progress,
+    )
+
+    assert progress == [(1, 3), (2, 3), (3, 3)]
+
+
 def test_natural_reading_api_models_default_off_and_accept_opt_in():
     request = GenerationRequest(profile_id="voice-id", text="测试")
     settings_patch = GenerationSettingsUpdate(natural_reading=True)
@@ -213,6 +255,12 @@ def test_migration_adds_natural_reading_without_enabling_existing_data(tmp_path)
     assert "natural_reading" in {
         column["name"] for column in inspect(engine).get_columns("generations")
     }
+    assert "progress_current" in {
+        column["name"] for column in inspect(engine).get_columns("generations")
+    }
+    assert "progress_total" in {
+        column["name"] for column in inspect(engine).get_columns("generations")
+    }
     assert "natural_reading" in {
         column["name"] for column in inspect(engine).get_columns("generation_settings")
     }
@@ -250,4 +298,37 @@ async def test_history_remembers_natural_reading_for_retry(tmp_path):
     stored = session.query(DBGeneration).filter_by(id=response.id).one()
     assert response.natural_reading is True
     assert stored.natural_reading is True
+    session.close()
+
+
+@pytest.mark.asyncio
+async def test_history_exposes_live_chunk_progress(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'progress.db'}")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine)()
+    session.add(VoiceProfile(id="voice-id", name="测试声音", language="zh"))
+    session.commit()
+
+    generation = await history.create_generation(
+        profile_id="voice-id",
+        text="第一段。第二段。",
+        language="zh",
+        audio_path="",
+        duration=0,
+        seed=None,
+        db=session,
+        status="generating",
+        engine="cosyvoice",
+    )
+    updated = await history.update_generation_status(
+        generation.id,
+        "generating",
+        session,
+        progress_current=2,
+        progress_total=4,
+    )
+
+    assert updated is not None
+    assert updated.progress_current == 2
+    assert updated.progress_total == 4
     session.close()

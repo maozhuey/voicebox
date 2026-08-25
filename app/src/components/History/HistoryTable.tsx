@@ -545,7 +545,14 @@ export function HistoryTable() {
                       <div className="text-xs text-muted-foreground">
                         {isInProgress ? (
                           <span className="text-accent">
-                            {gen.status === 'loading_model' ? 'Loading model...' : 'Generating...'}
+                            {gen.status === 'loading_model'
+                              ? t('history.status.loadingModel')
+                              : gen.progress_current && gen.progress_total
+                                ? t('history.status.generatingChunk', {
+                                    current: gen.progress_current,
+                                    total: gen.progress_total,
+                                  })
+                                : t('history.status.generating')}
                           </span>
                         ) : (
                           formatDate(gen.created_at)

@@ -272,7 +272,7 @@
       "defaultEffectsHint": "Efeitos aplicados automaticamente a todas as novas gerações com esta voz.",
       "personalityLabel": "Personalidade",
       "personalityPlaceholder": "ex.: \"um pirata rabugento que só fala em metáforas náuticas\"",
-      "personalityHint": "Quem é esta voz e como ela fala. Alimenta o botão Compor e a opção de reescrever no personagem na página de geração. Deixe em branco para ocultar ambos."
+      "personalityHint": "Usado pelo Compor para gerar novas falas com base no personagem, em seus hábitos de expressão e nos requisitos de conteúdo. Não altera a voz nem controla automaticamente a interpretação. Deixe em branco para ocultar o Compor."
     },
     "avatar": {
       "alt": "Pré-visualização do avatar"
@@ -700,6 +700,9 @@
       "tooltip": "Instruções de entrega (tom, emoção, ritmo)",
       "placeholder": "Instruções de entrega — ex.: Fale devagar e com calor, Autoritário e claro…"
     },
+    "naturalReading": {
+      "tooltip": "Leitura natural aprimorada"
+    },
     "voiceSelector": {
       "placeholder": "Selecione uma voz…"
     },
@@ -712,12 +715,6 @@
       "ariaLabel": "Compor uma fala no personagem",
       "failedTitle": "Falha ao compor",
       "failedDescription": "Não foi possível gerar texto a partir desta personalidade."
-    },
-    "persona": {
-      "tooltipActive": "Falando no personagem",
-      "tooltipInactive": "Falar no personagem",
-      "ariaLabelActive": "Falando no personagem",
-      "ariaLabelInactive": "Falar no personagem"
     }
   },
   "main": {
