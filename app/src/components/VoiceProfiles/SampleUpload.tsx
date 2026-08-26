@@ -33,11 +33,8 @@ import { AudioSampleSystem } from './AudioSampleSystem';
 import { AudioSampleUpload } from './AudioSampleUpload';
 
 const sampleSchema = z.object({
-  file: z.instanceof(File, { message: 'Please select an audio file' }),
-  referenceText: z
-    .string()
-    .min(1, 'Reference text is required')
-    .max(1000, 'Reference text must be less than 1000 characters'),
+  file: z.instanceof(File, { message: '请选择音频文件' }),
+  referenceText: z.string().min(1, '参考文本不能为空').max(1000, '参考文本不能超过 1000 字'),
 });
 
 type SampleFormValues = z.infer<typeof sampleSchema>;
@@ -86,8 +83,8 @@ export function SampleUpload({ profileId, open, onOpenChange }: SampleUploadProp
       }
       form.setValue('file', file, { shouldValidate: true });
       toast({
-        title: 'Recording complete',
-        description: 'Audio has been recorded successfully.',
+        title: '录音完成',
+        description: '音频录制成功。',
       });
     },
   });
@@ -113,8 +110,8 @@ export function SampleUpload({ profileId, open, onOpenChange }: SampleUploadProp
       }
       form.setValue('file', file, { shouldValidate: true });
       toast({
-        title: 'System audio captured',
-        description: 'Audio has been captured successfully.',
+        title: '系统音频捕获完成',
+        description: '音频捕获成功。',
       });
     },
   });
@@ -123,7 +120,7 @@ export function SampleUpload({ profileId, open, onOpenChange }: SampleUploadProp
   useEffect(() => {
     if (recordingError) {
       toast({
-        title: 'Recording error',
+        title: '录音失败',
         description: recordingError,
         variant: 'destructive',
       });
@@ -134,7 +131,7 @@ export function SampleUpload({ profileId, open, onOpenChange }: SampleUploadProp
   useEffect(() => {
     if (systemRecordingError) {
       toast({
-        title: 'System audio capture error',
+        title: '系统音频捕获失败',
         description: systemRecordingError,
         variant: 'destructive',
       });
@@ -145,8 +142,8 @@ export function SampleUpload({ profileId, open, onOpenChange }: SampleUploadProp
     const file = form.getValues('file');
     if (!file) {
       toast({
-        title: 'No file selected',
-        description: 'Please select an audio file first.',
+        title: '未选择文件',
+        description: '请先选择一个音频文件。',
         variant: 'destructive',
       });
       return;
@@ -159,8 +156,8 @@ export function SampleUpload({ profileId, open, onOpenChange }: SampleUploadProp
       form.setValue('referenceText', result.text, { shouldValidate: true });
     } catch (error) {
       toast({
-        title: 'Transcription failed',
-        description: error instanceof Error ? error.message : 'Failed to transcribe audio',
+        title: '转录失败',
+        description: error instanceof Error ? error.message : '无法转录音频',
         variant: 'destructive',
       });
     }
@@ -175,15 +172,15 @@ export function SampleUpload({ profileId, open, onOpenChange }: SampleUploadProp
       });
 
       toast({
-        title: 'Sample added',
-        description: 'Audio sample has been added successfully.',
+        title: '样本已添加',
+        description: '音频样本添加成功。',
       });
 
       handleOpenChange(false);
     } catch (error) {
       toast({
-        title: 'Error',
-        description: error instanceof Error ? error.message : 'Failed to add sample',
+        title: '添加失败',
+        description: error instanceof Error ? error.message : '无法添加样本',
         variant: 'destructive',
       });
     }
@@ -223,10 +220,8 @@ export function SampleUpload({ profileId, open, onOpenChange }: SampleUploadProp
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Add Audio Sample</DialogTitle>
-          <DialogDescription>
-            Upload an audio file and provide the reference text that matches the audio.
-          </DialogDescription>
+          <DialogTitle>添加音频样本</DialogTitle>
+          <DialogDescription>上传音频文件，并填写与音频内容完全一致的参考文本。</DialogDescription>
         </DialogHeader>
 
         <Form {...form}>
@@ -237,16 +232,16 @@ export function SampleUpload({ profileId, open, onOpenChange }: SampleUploadProp
               >
                 <TabsTrigger value="upload" className="flex items-center gap-2">
                   <Upload className="h-4 w-4 shrink-0" />
-                  Upload
+                  上传
                 </TabsTrigger>
                 <TabsTrigger value="record" className="flex items-center gap-2">
                   <Mic className="h-4 w-4 shrink-0" />
-                  Record
+                  录音
                 </TabsTrigger>
                 {platform.metadata.isTauri && isSystemAudioSupported && (
                   <TabsTrigger value="system" className="flex items-center gap-2">
                     <Monitor className="h-4 w-4 shrink-0" />
-                    System Audio
+                    系统音频
                   </TabsTrigger>
                 )}
               </TabsList>
@@ -319,10 +314,10 @@ export function SampleUpload({ profileId, open, onOpenChange }: SampleUploadProp
               name="referenceText"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Reference Text</FormLabel>
+                  <FormLabel>参考文本</FormLabel>
                   <FormControl>
                     <Textarea
-                      placeholder="Enter the exact text spoken in the audio..."
+                      placeholder="请输入音频中实际说出的完整文本…"
                       className="min-h-[100px]"
                       {...field}
                     />
@@ -334,10 +329,10 @@ export function SampleUpload({ profileId, open, onOpenChange }: SampleUploadProp
 
             <div className="flex gap-2 justify-end">
               <Button type="button" variant="outline" onClick={() => handleOpenChange(false)}>
-                Cancel
+                取消
               </Button>
               <Button type="submit" disabled={addSample.isPending}>
-                {addSample.isPending ? 'Uploading...' : 'Add Sample'}
+                {addSample.isPending ? '上传中…' : '添加样本'}
               </Button>
             </div>
           </form>

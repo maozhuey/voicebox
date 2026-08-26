@@ -12,7 +12,8 @@ export interface VoiceProfileCreate {
   preset_voice_id?: string;
   design_prompt?: string;
   default_engine?: string;
-  /** Free-form task setting used by Compose to generate new lines. */
+  default_model_size?: string;
+  /** 人物设定：用于撰写台词，也可作为自然朗读增强的初始朗读指令。 */
   personality?: string;
 }
 
@@ -28,6 +29,7 @@ export interface VoiceProfileResponse {
   preset_voice_id?: string;
   design_prompt?: string;
   default_engine?: string;
+  default_model_size?: string;
   personality?: string | null;
   generation_count: number;
   sample_count: number;
@@ -115,6 +117,8 @@ export interface GenerationResponse {
   instruct?: string;
   engine?: string;
   model_size?: string;
+  cosyvoice_mode?: 'reference' | 'instruct';
+  dialect?: 'mandarin' | 'henan' | 'sichuan';
   natural_reading?: boolean;
   status: 'loading_model' | 'generating' | 'completed' | 'failed';
   progress_current?: number;
@@ -425,6 +429,10 @@ export interface StoryItemDetail {
   seed?: number;
   instruct?: string;
   engine?: string;
+  model_size?: string;
+  cosyvoice_mode?: 'reference' | 'instruct';
+  dialect?: 'mandarin' | 'henan' | 'sichuan';
+  natural_reading: boolean;
   volume: number;
   generation_created_at: string;
   versions?: GenerationVersionResponse[];

@@ -23,7 +23,7 @@ import { usePlatform } from '@/platform/PlatformContext';
 import { useServerStore } from '@/stores/serverStore';
 
 const connectionSchema = z.object({
-  serverUrl: z.string().url('Please enter a valid URL'),
+  serverUrl: z.string().url('请输入有效的网址'),
 });
 
 type ConnectionFormValues = z.infer<typeof connectionSchema>;
@@ -57,15 +57,15 @@ export function ConnectionForm() {
     setServerUrl(data.serverUrl);
     form.reset(data);
     toast({
-      title: 'Server URL updated',
-      description: `Connected to ${data.serverUrl}`,
+      title: '服务器地址已更新',
+      description: `已连接到 ${data.serverUrl}`,
     });
   }
 
   return (
-    <Card role="region" aria-label="Server Connection" tabIndex={0}>
+    <Card role="region" aria-label="服务器连接" tabIndex={0}>
       <CardHeader>
-        <CardTitle>Server Connection</CardTitle>
+        <CardTitle>服务器连接</CardTitle>
       </CardHeader>
       <CardContent>
         <Form {...form}>
@@ -75,17 +75,17 @@ export function ConnectionForm() {
               name="serverUrl"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Server URL</FormLabel>
+                  <FormLabel>服务器地址</FormLabel>
                   <FormControl>
                     <Input placeholder="http://127.0.0.1:17493" {...field} />
                   </FormControl>
-                  <FormDescription>Enter the URL of your voicebox backend server</FormDescription>
+                  <FormDescription>请输入 Voicebox 后端服务器地址</FormDescription>
                   <FormMessage />
                 </FormItem>
               )}
             />
 
-            {isDirty && <Button type="submit">Update Connection</Button>}
+            {isDirty && <Button type="submit">更新连接</Button>}
           </form>
         </Form>
 
@@ -94,24 +94,22 @@ export function ConnectionForm() {
           {isLoading ? (
             <div className="flex items-center gap-2">
               <Loader2 className="h-4 w-4 animate-spin" />
-              <span className="text-sm text-muted-foreground">Checking connection...</span>
+              <span className="text-sm text-muted-foreground">正在检查连接…</span>
             </div>
           ) : healthError ? (
             <div className="flex items-center gap-2">
               <XCircle className="h-4 w-4 text-destructive" />
-              <span className="text-sm text-destructive">
-                Connection failed: {healthError.message}
-              </span>
+              <span className="text-sm text-destructive">连接失败：{healthError.message}</span>
             </div>
           ) : health ? (
             <div className="flex flex-wrap gap-2">
               <Badge
                 variant={health.model_loaded || health.model_downloaded ? 'default' : 'secondary'}
               >
-                {health.model_loaded || health.model_downloaded ? 'Model Ready' : 'No Model'}
+                {health.model_loaded || health.model_downloaded ? '模型已就绪' : '暂无模型'}
               </Badge>
               <Badge variant={health.gpu_available ? 'default' : 'secondary'}>
-                GPU: {health.gpu_available ? 'Available' : 'Not Available'}
+                GPU：{health.gpu_available ? '可用' : '不可用'}
               </Badge>
               {health.vram_used_mb != null && health.vram_used_mb > 0 && (
                 <Badge variant="outline">VRAM: {health.vram_used_mb.toFixed(0)} MB</Badge>
@@ -132,10 +130,10 @@ export function ConnectionForm() {
                   console.error('Failed to sync setting to Rust:', error);
                 });
                 toast({
-                  title: 'Setting updated',
+                  title: '设置已更新',
                   description: checked
-                    ? 'Server will continue running when app closes'
-                    : 'Server will stop when app closes',
+                    ? '关闭应用后服务器将继续运行'
+                    : '关闭应用后服务器将停止运行',
                 });
               }}
             />
@@ -144,11 +142,10 @@ export function ConnectionForm() {
                 htmlFor="keepServerRunning"
                 className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
               >
-                Keep server running when app closes
+                关闭应用时保持服务器运行
               </label>
               <p className="text-sm text-muted-foreground">
-                When enabled, the server will continue running in the background after closing the
-                app. Disabled by default.
+                开启后，关闭应用时服务器仍将在后台运行。此项默认关闭。
               </p>
             </div>
           </div>
@@ -164,10 +161,10 @@ export function ConnectionForm() {
                 onCheckedChange={(checked: boolean) => {
                   setMode(checked ? 'remote' : 'local');
                   toast({
-                    title: 'Setting updated',
+                    title: '设置已更新',
                     description: checked
-                      ? 'Network access enabled. Restart the app to apply.'
-                      : 'Network access disabled. Restart the app to apply.',
+                      ? '已允许网络访问，重启应用后生效。'
+                      : '已禁止网络访问，重启应用后生效。',
                   });
                 }}
               />
@@ -176,11 +173,10 @@ export function ConnectionForm() {
                   htmlFor="allowNetworkAccess"
                   className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
                 >
-                  Allow network access
+                  允许网络访问
                 </label>
                 <p className="text-sm text-muted-foreground">
-                  Makes the server accessible from other devices on your network. Restart the app
-                  after changing this setting.
+                  允许同一网络中的其他设备访问服务器。修改此设置后请重启应用。
                 </p>
               </div>
             </div>

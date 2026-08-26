@@ -272,7 +272,7 @@
       "defaultEffectsHint": "Efectos aplicados automáticamente a todas las nuevas generaciones con esta voz.",
       "personalityLabel": "Personalidad",
       "personalityPlaceholder": "p. ej. \"un pirata gruñón que solo habla con metáforas náuticas\"",
-      "personalityHint": "Se usa en Redactar para generar nuevas frases según el personaje, sus hábitos de expresión y los requisitos de contenido. No cambia la voz ni controla automáticamente la interpretación. Déjalo en blanco para ocultar Redactar."
+      "personalityHint": "Se usa en Redactar para generar nuevas frases. Al activar la lectura natural mejorada, los modelos compatibles también precargan este contenido en las instrucciones de interpretación para editarlo en cada tarea. No cambia el timbre; déjalo vacío para no precargarlo y ocultar Redactar."
     },
     "avatar": {
       "alt": "Vista previa del avatar"

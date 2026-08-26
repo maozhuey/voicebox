@@ -38,8 +38,11 @@ class VoiceProfile(Base):
     preset_voice_id = Column(String, nullable=True)  # e.g. "am_adam" — only for preset
     design_prompt = Column(Text, nullable=True)      # text description — only for designed
     default_engine = Column(String, nullable=True)   # auto-selected engine, locked for preset
-    # Free-form task setting used by the compose button and the task-setting
-    # reading switch on /generate. The switch preserves the user's script;
+    # 业务规则：CosyVoice 的 RL/Base 是同一引擎下的不同模型，必须与
+    # default_engine 分列保存，声音档案切换时生成任务才能还原具体型号。
+    default_model_size = Column(String, nullable=True)
+    # Free-form character setting used by the compose button and natural-reading
+    # enhancement on /generate. The switch preserves the user's script;
     # voice identity remains controlled by the preset / cloning metadata.
     personality = Column(Text, nullable=True)
 
@@ -73,6 +76,11 @@ class Generation(Base):
     instruct = Column(Text)
     engine = Column(String, default="qwen")
     model_size = Column(String, nullable=True)
+    # CosyVoice generation has two distinct inference paths. Persist the
+    # selected path and dialect so story cards describe the configuration that
+    # created this take, rather than whatever is currently selected in the UI.
+    cosyvoice_mode = Column(String, nullable=True)
+    dialect = Column(String, nullable=True)
     # Records whether paragraph-aware rhythm planning was used so retry and
     # regenerate preserve the same speaking behavior as the original take.
     natural_reading = Column(Boolean, nullable=False, default=False)
@@ -84,7 +92,7 @@ class Generation(Base):
     error = Column(Text, nullable=True)
     is_favorited = Column(Boolean, default=False)
     # Origin of this generation — "manual" for plain /generate calls and
-    # "personality_reading" when task-setting reading was selected. The
+    # "personality_reading" when character-setting reading was selected. The
     # latter must still retain the user-entered text verbatim.
     source = Column(String, nullable=False, default="manual")
     created_at = Column(DateTime, default=datetime.utcnow)

@@ -4,6 +4,7 @@ import { useToast } from '@/components/ui/use-toast';
 import { apiClient } from '@/lib/api/client';
 import type { HistoryListResponse } from '@/lib/api/types';
 import { useGenerationSettings } from '@/lib/hooks/useSettings';
+import { toChineseErrorMessage } from '@/lib/utils/errorMessage';
 import { useGenerationStore } from '@/stores/generationStore';
 import { usePlayerStore } from '@/stores/playerStore';
 
@@ -120,16 +121,16 @@ export function useGenerationProgress() {
                   queryClient.invalidateQueries({ queryKey: ['stories'] });
                   queryClient.invalidateQueries({ queryKey: ['stories', storyId] });
                   toast({
-                    title: 'Added to story',
+                    title: '已添加到故事',
                     description: data.duration
-                      ? `Audio generated (${data.duration.toFixed(2)}s) and added to story`
-                      : 'Audio generated and added to story',
+                      ? `音频已生成（${data.duration.toFixed(2)} 秒）并添加到故事`
+                      : '音频已生成并添加到故事',
                   });
                 })
                 .catch(() => {
                   toast({
-                    title: 'Generation complete',
-                    description: 'Audio generated but failed to add to story',
+                    title: '音频生成完成',
+                    description: '音频已生成，但添加到故事失败',
                     variant: 'destructive',
                   });
                 });
@@ -159,8 +160,8 @@ export function useGenerationProgress() {
             queryClient.refetchQueries({ queryKey: ['history'] });
 
             toast({
-              title: data.status === 'not_found' ? 'Generation not found' : 'Generation failed',
-              description: data.error || 'An error occurred during generation',
+              title: data.status === 'not_found' ? '未找到生成任务' : '生成失败',
+              description: toChineseErrorMessage(data.error, '生成过程中发生错误'),
               variant: 'destructive',
             });
           }

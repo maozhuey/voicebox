@@ -7,6 +7,7 @@ import { Progress } from '@/components/ui/progress';
 import { apiClient } from '@/lib/api/client';
 import type { CudaDownloadProgress, RocmDownloadProgress } from '@/lib/api/types';
 import { useServerHealth } from '@/lib/hooks/useServer';
+import { toChineseErrorMessage } from '@/lib/utils/errorMessage';
 import { usePlatform } from '@/platform/PlatformContext';
 import { useServerStore } from '@/stores/serverStore';
 
@@ -89,7 +90,7 @@ export function GpuAcceleration() {
           refetchCudaStatus();
         } else if (data.status === 'error') {
           eventSource.close();
-          setError(data.error || 'Download failed');
+          setError(toChineseErrorMessage(data.error, '下载失败'));
           setDownloadProgress(null);
           refetchCudaStatus();
         }
@@ -126,7 +127,7 @@ export function GpuAcceleration() {
           refetchRocmStatus();
         } else if (data.status === 'error') {
           eventSource.close();
-          setError(data.error || 'Download failed');
+          setError(toChineseErrorMessage(data.error, '下载失败'));
           setRocmDownloadProgress(null);
           refetchRocmStatus();
         }
@@ -175,7 +176,7 @@ export function GpuAcceleration() {
       await apiClient.downloadCudaBackend();
       refetchCudaStatus();
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'Failed to start download';
+      const msg = toChineseErrorMessage(e, '无法开始下载');
       if (msg.includes('already downloaded')) {
         refetchCudaStatus();
       } else {
@@ -190,7 +191,7 @@ export function GpuAcceleration() {
       await apiClient.downloadRocmBackend();
       refetchRocmStatus();
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'Failed to start download';
+      const msg = toChineseErrorMessage(e, '无法开始下载');
       if (msg.includes('already downloaded')) {
         refetchRocmStatus();
       } else {
@@ -221,7 +222,7 @@ export function GpuAcceleration() {
         clearInterval(healthPollRef.current);
         healthPollRef.current = null;
       }
-      setError(e instanceof Error ? e.message : 'Restart failed');
+      setError(toChineseErrorMessage(e, '重启失败'));
     }
   };
 
@@ -249,7 +250,7 @@ export function GpuAcceleration() {
         clearInterval(healthPollRef.current);
         healthPollRef.current = null;
       }
-      setError(e instanceof Error ? e.message : 'Failed to switch to CPU');
+      setError(toChineseErrorMessage(e, '切换到 CPU 失败'));
       refetchCudaStatus();
     }
   };
@@ -278,7 +279,7 @@ export function GpuAcceleration() {
         clearInterval(healthPollRef.current);
         healthPollRef.current = null;
       }
-      setError(e instanceof Error ? e.message : 'Failed to switch to CPU');
+      setError(toChineseErrorMessage(e, '切换到 CPU 失败'));
       refetchRocmStatus();
     }
   };
@@ -289,7 +290,7 @@ export function GpuAcceleration() {
       await apiClient.deleteCudaBackend();
       refetchCudaStatus();
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Failed to delete CUDA backend');
+      setError(toChineseErrorMessage(e, '删除 CUDA 后端失败'));
     }
   };
 
@@ -299,7 +300,7 @@ export function GpuAcceleration() {
       await apiClient.deleteRocmBackend();
       refetchRocmStatus();
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Failed to delete ROCm backend');
+      setError(toChineseErrorMessage(e, '删除 ROCm 后端失败'));
     }
   };
 
@@ -324,7 +325,7 @@ export function GpuAcceleration() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>GPU Acceleration</CardTitle>
+        <CardTitle>GPU 加速</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         {/* GPU status */}
@@ -338,14 +339,14 @@ export function GpuAcceleration() {
               <div className="text-sm text-muted-foreground">
                 {health.gpu_type.replace(/\s*\(.+\)$/, '')}
                 {health.vram_used_mb != null && health.vram_used_mb > 0
-                  ? ` \u00b7 ${health.vram_used_mb.toFixed(0)} MB VRAM used`
+                  ? ` \u00b7 已使用 ${health.vram_used_mb.toFixed(0)} MB 显存`
                   : ''}
               </div>
             </>
           ) : (
             <>
               <div className="text-sm font-medium">CPU</div>
-              <div className="text-sm text-muted-foreground">No GPU acceleration available</div>
+              <div className="text-sm text-muted-foreground">没有可用的 GPU 加速</div>
             </>
           )}
         </div>
@@ -357,16 +358,15 @@ export function GpuAcceleration() {
               <div className="flex items-center gap-2 p-3 rounded-lg bg-primary/5 border">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 <span className="text-sm">
-                  {restartPhase === 'stopping' && 'Stopping server...'}
-                  {restartPhase === 'waiting' && 'Restarting server...'}
-                  {restartPhase === 'ready' && 'Server restarted successfully!'}
+                  {restartPhase === 'stopping' && '正在停止服务器…'}
+                  {restartPhase === 'waiting' && '正在重启服务器…'}
+                  {restartPhase === 'ready' && '服务器重启成功！'}
                 </span>
               </div>
             ) : (
               <div className="space-y-3">
                 <p className="text-sm text-muted-foreground">
-                  Running with CUDA GPU acceleration. Switch back to CPU if needed (you can
-                  re-download later).
+                  当前使用 CUDA GPU 加速。如有需要可切换回 CPU，之后仍可重新下载。
                 </p>
                 <Button
                   onClick={handleSwitchToCpuFromCuda}
@@ -375,7 +375,7 @@ export function GpuAcceleration() {
                   size="sm"
                 >
                   <RotateCw className="h-4 w-4 mr-2" />
-                  Switch to CPU Backend
+                  切换到 CPU 后端
                 </Button>
               </div>
             )}
@@ -395,16 +395,15 @@ export function GpuAcceleration() {
               <div className="flex items-center gap-2 p-3 rounded-lg bg-primary/5 border">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 <span className="text-sm">
-                  {restartPhase === 'stopping' && 'Stopping server...'}
-                  {restartPhase === 'waiting' && 'Restarting server...'}
-                  {restartPhase === 'ready' && 'Server restarted successfully!'}
+                  {restartPhase === 'stopping' && '正在停止服务器…'}
+                  {restartPhase === 'waiting' && '正在重启服务器…'}
+                  {restartPhase === 'ready' && '服务器重启成功！'}
                 </span>
               </div>
             ) : (
               <div className="space-y-3">
                 <p className="text-sm text-muted-foreground">
-                  Running with ROCm GPU acceleration for AMD. Switch back to CPU if needed (you can
-                  re-download later).
+                  当前使用 AMD ROCm GPU 加速。如有需要可切换回 CPU，之后仍可重新下载。
                 </p>
                 <Button
                   onClick={handleSwitchToCpuFromRocm}
@@ -413,7 +412,7 @@ export function GpuAcceleration() {
                   size="sm"
                 >
                   <RotateCw className="h-4 w-4 mr-2" />
-                  Switch to CPU Backend
+                  切换到 CPU 后端
                 </Button>
               </div>
             )}
@@ -441,9 +440,7 @@ export function GpuAcceleration() {
                       <Loader2 className="h-4 w-4 animate-spin" />
                       <span>
                         {downloadProgress.filename ||
-                          (cudaAvailable
-                            ? 'Updating CUDA backend...'
-                            : 'Downloading CUDA backend...')}
+                          (cudaAvailable ? '正在更新 CUDA 后端…' : '正在下载 CUDA 后端…')}
                       </span>
                     </div>
                     {downloadProgress.total > 0 && (
@@ -470,12 +467,12 @@ export function GpuAcceleration() {
                   {!cudaAvailable && (
                     <div className="space-y-3">
                       <p className="text-sm text-muted-foreground">
-                        Download the CUDA backend (~2.4 GB) for NVIDIA GPU acceleration. Requires an
-                        NVIDIA GPU with CUDA support.
+                        下载 CUDA 后端（约 2.4 GB）以启用 NVIDIA GPU 加速，需要支持 CUDA 的 NVIDIA
+                        GPU。
                       </p>
                       <Button onClick={handleDownloadCuda} className="w-full" size="sm">
                         <Download className="h-4 w-4 mr-2" />
-                        Download CUDA Backend
+                        下载 CUDA 后端
                       </Button>
                     </div>
                   )}
@@ -483,12 +480,11 @@ export function GpuAcceleration() {
                   {cudaAvailable && platform.metadata.isTauri && (
                     <div className="space-y-3">
                       <p className="text-sm text-muted-foreground">
-                        CUDA backend is downloaded and ready. Restart the server to enable GPU
-                        acceleration.
+                        CUDA 后端已下载并准备就绪。重启服务器以启用 GPU 加速。
                       </p>
                       <Button onClick={handleRestart} className="w-full" size="sm">
                         <RotateCw className="h-4 w-4 mr-2" />
-                        Switch to CUDA Backend
+                        切换到 CUDA 后端
                       </Button>
                     </div>
                   )}
@@ -501,7 +497,7 @@ export function GpuAcceleration() {
                       size="sm"
                     >
                       <Trash2 className="h-4 w-4 mr-2" />
-                      Remove CUDA Backend
+                      移除 CUDA 后端
                     </Button>
                   )}
                 </div>
@@ -523,9 +519,7 @@ export function GpuAcceleration() {
                       <Loader2 className="h-4 w-4 animate-spin" />
                       <span>
                         {rocmDownloadProgress.filename ||
-                          (rocmAvailable
-                            ? 'Updating ROCm backend...'
-                            : 'Downloading ROCm backend...')}
+                          (rocmAvailable ? '正在更新 ROCm 后端…' : '正在下载 ROCm 后端…')}
                       </span>
                     </div>
                     {rocmDownloadProgress.total > 0 && (
@@ -552,12 +546,12 @@ export function GpuAcceleration() {
                   {!rocmAvailable && (
                     <div className="space-y-3">
                       <p className="text-sm text-muted-foreground">
-                        Download the ROCm backend (~2-3 GB) for AMD GPU acceleration. Requires an
-                        AMD Radeon GPU with ROCm support.
+                        下载 ROCm 后端（约 2–3 GB）以启用 AMD GPU 加速，需要支持 ROCm 的 AMD Radeon
+                        GPU。
                       </p>
                       <Button onClick={handleDownloadRocm} className="w-full" size="sm">
                         <Download className="h-4 w-4 mr-2" />
-                        Download AMD ROCm Backend
+                        下载 AMD ROCm 后端
                       </Button>
                     </div>
                   )}
@@ -565,12 +559,11 @@ export function GpuAcceleration() {
                   {rocmAvailable && platform.metadata.isTauri && (
                     <div className="space-y-3">
                       <p className="text-sm text-muted-foreground">
-                        ROCm backend is downloaded and ready. Restart the server to enable AMD GPU
-                        acceleration.
+                        ROCm 后端已下载并准备就绪。重启服务器以启用 AMD GPU 加速。
                       </p>
                       <Button onClick={handleRestart} className="w-full" size="sm">
                         <RotateCw className="h-4 w-4 mr-2" />
-                        Switch to ROCm Backend
+                        切换到 ROCm 后端
                       </Button>
                     </div>
                   )}
@@ -583,7 +576,7 @@ export function GpuAcceleration() {
                       size="sm"
                     >
                       <Trash2 className="h-4 w-4 mr-2" />
-                      Remove ROCm Backend
+                      移除 ROCm 后端
                     </Button>
                   )}
                 </div>
@@ -595,9 +588,9 @@ export function GpuAcceleration() {
               <div className="flex items-center gap-2 p-3 rounded-lg bg-primary/5 border">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 <span className="text-sm">
-                  {restartPhase === 'stopping' && 'Stopping server...'}
-                  {restartPhase === 'waiting' && 'Restarting server...'}
-                  {restartPhase === 'ready' && 'Server restarted successfully!'}
+                  {restartPhase === 'stopping' && '正在停止服务器…'}
+                  {restartPhase === 'waiting' && '正在重启服务器…'}
+                  {restartPhase === 'ready' && '服务器重启成功！'}
                 </span>
               </div>
             )}

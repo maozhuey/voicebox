@@ -1,5 +1,6 @@
 import type { LanguageCode } from '@/lib/constants/languages';
 import { useServerStore } from '@/stores/serverStore';
+import { toChineseErrorMessage } from '@/lib/utils/errorMessage';
 import type {
   ActiveTasksResponse,
   ApplyEffectsRequest,
@@ -56,18 +57,22 @@ import type {
 } from './types';
 
 function formatErrorDetail(detail: unknown, fallback: string): string {
-  if (typeof detail === 'string') return detail;
+  let message = fallback;
+  if (typeof detail === 'string') message = detail;
   if (Array.isArray(detail)) {
-    return detail
+    message = detail
       .map((e: Record<string, unknown>) => e.msg || e.message || JSON.stringify(e))
       .join('; ');
-  }
-  if (detail && typeof detail === 'object') {
+  } else if (detail && typeof detail === 'object') {
     const obj = detail as Record<string, unknown>;
-    if (typeof obj.message === 'string') return obj.message;
-    return JSON.stringify(detail);
+    message = typeof obj.message === 'string' ? obj.message : JSON.stringify(detail);
   }
-  return fallback;
+
+  // 保留原始服务错误供开发排查，但所有可能进入提示弹窗的返回值统一为简体中文。
+  if (message && !/[\u3400-\u9fff]/.test(message)) {
+    console.error('[Voicebox API] 原始错误：', message);
+  }
+  return toChineseErrorMessage(message, toChineseErrorMessage(fallback));
 }
 
 class ApiClient {
@@ -119,6 +124,22 @@ class ApiClient {
 
   async listPresetVoices(engine: string): Promise<{ engine: string; voices: PresetVoice[] }> {
     return this.request<{ engine: string; voices: PresetVoice[] }>(`/profiles/presets/${engine}`);
+  }
+
+  async previewPresetVoice(engine: string, voiceId: string, signal?: AbortSignal): Promise<Blob> {
+    const response = await fetch(`${this.getBaseUrl()}/profiles/presets/${engine}/preview`, {
+      method: 'POST',
+      signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ voice_id: voiceId }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: response.statusText }));
+      throw new Error(formatErrorDetail(error.detail, `HTTP error! status: ${response.status}`));
+    }
+
+    return response.blob();
   }
 
   async updateProfile(profileId: string, data: VoiceProfileCreate): Promise<VoiceProfileResponse> {
@@ -427,9 +448,7 @@ class ApiClient {
 
   // Captures
   async listCaptures(limit = 50, offset = 0): Promise<CaptureListResponse> {
-    return this.request<CaptureListResponse>(
-      `/captures?limit=${limit}&offset=${offset}`,
-    );
+    return this.request<CaptureListResponse>(`/captures?limit=${limit}&offset=${offset}`);
   }
 
   async getCapture(captureId: string): Promise<CaptureResponse> {
@@ -467,10 +486,7 @@ class ApiClient {
     });
   }
 
-  async refineCapture(
-    captureId: string,
-    body: CaptureRefineRequest,
-  ): Promise<CaptureResponse> {
+  async refineCapture(captureId: string, body: CaptureRefineRequest): Promise<CaptureResponse> {
     return this.request<CaptureResponse>(`/captures/${captureId}/refine`, {
       method: 'POST',
       body: JSON.stringify(body),
@@ -511,9 +527,7 @@ class ApiClient {
     return this.request<GenerationSettings>('/settings/generation');
   }
 
-  async updateGenerationSettings(
-    patch: GenerationSettingsUpdate,
-  ): Promise<GenerationSettings> {
+  async updateGenerationSettings(patch: GenerationSettingsUpdate): Promise<GenerationSettings> {
     return this.request<GenerationSettings>('/settings/generation', {
       method: 'PUT',
       body: JSON.stringify(patch),
@@ -525,9 +539,7 @@ class ApiClient {
     return this.request<MCPClientBindingListResponse>('/mcp/bindings');
   }
 
-  async upsertMCPBinding(
-    data: MCPClientBindingUpsert,
-  ): Promise<MCPClientBinding> {
+  async upsertMCPBinding(data: MCPClientBindingUpsert): Promise<MCPClientBinding> {
     return this.request<MCPClientBinding>('/mcp/bindings', {
       method: 'PUT',
       body: JSON.stringify(data),
@@ -535,10 +547,9 @@ class ApiClient {
   }
 
   async deleteMCPBinding(clientId: string): Promise<{ deleted: string }> {
-    return this.request<{ deleted: string }>(
-      `/mcp/bindings/${encodeURIComponent(clientId)}`,
-      { method: 'DELETE' },
-    );
+    return this.request<{ deleted: string }>(`/mcp/bindings/${encodeURIComponent(clientId)}`, {
+      method: 'DELETE',
+    });
   }
 
   // Model Management

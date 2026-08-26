@@ -184,6 +184,8 @@ class KokoroTTSBackend:
         kokoro_lang = LANG_CODE_MAP.get(lang_code, "a")
 
         if kokoro_lang not in self._pipelines:
+            if kokoro_lang == "j":
+                self._configure_japanese_tokenizer()
             from kokoro import KPipeline
 
             # Create pipeline with our existing model (no redundant model loading)
@@ -194,6 +196,21 @@ class KokoroTTSBackend:
             )
 
         return self._pipelines[kokoro_lang]
+
+    @staticmethod
+    def _configure_japanese_tokenizer() -> None:
+        """Make Misaki's Japanese tokenizer use the bundled UniDic Lite files."""
+        import misaki.cutlet
+        import unidic_lite
+        from fugashi import Tagger
+
+        if getattr(misaki.cutlet, "_voicebox_uses_unidic_lite", False):
+            return
+
+        # 业务规则：日语 Kokoro 声音必须可离线生成与缓存。完整 unidic 仅有 Python  # noqa: RUF003
+        # 包而未下载词典时会让试听失败，因此固定使用 requirements 中随包提供的轻量词典。  # noqa: RUF003
+        misaki.cutlet.Tagger = lambda: Tagger(f"-r {unidic_lite.DICDIR}/mecabrc -d {unidic_lite.DICDIR}")
+        misaki.cutlet._voicebox_uses_unidic_lite = True
 
     def unload_model(self) -> None:
         """Unload model to free memory."""

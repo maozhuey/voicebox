@@ -1,8 +1,11 @@
 """Voice profile management module."""
 
+import asyncio
 import json as _json
 import logging
+import os
 import shutil
+import tempfile
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -28,6 +31,20 @@ logger = logging.getLogger(__name__)
 # generation selector: cloned profiles must reach CosyVoice's zero-shot prompt
 # path instead of being rejected before model generation begins.
 CLONING_ENGINES = {"qwen", "luxtts", "chatterbox", "chatterbox_turbo", "tada", "cosyvoice"}
+PROFILE_MODEL_SIZES = {"cosyvoice": {"rl", "base"}}
+
+_PRESET_PREVIEW_TEXTS = {
+    "zh": "你好，这是我的声音预览。",  # noqa: RUF001
+    "en": "Hello, this is a preview of my voice.",
+    "ja": "こんにちは、これは私の声のプレビューです。",
+    "ko": "안녕하세요, 제 목소리 미리 듣기입니다.",
+    "es": "Hola, esta es una muestra de mi voz.",
+    "fr": "Bonjour, voici un aperçu de ma voix.",
+    "hi": "नमस्ते, यह मेरी आवाज़ का नमूना है।",
+    "it": "Ciao, questa è un'anteprima della mia voce.",
+    "pt": "Olá, esta é uma prévia da minha voz.",
+}
+_PRESET_PREVIEW_CACHE_VERSION = "v2"
 
 
 def _profile_to_response(
@@ -57,6 +74,7 @@ def _profile_to_response(
         preset_voice_id=getattr(profile, "preset_voice_id", None),
         design_prompt=getattr(profile, "design_prompt", None),
         default_engine=getattr(profile, "default_engine", None),
+        default_model_size=getattr(profile, "default_model_size", None),
         personality=getattr(profile, "personality", None),
         generation_count=generation_count,
         sample_count=sample_count,
@@ -79,6 +97,93 @@ def _get_preset_voice_ids(engine: str) -> set[str]:
     return set()
 
 
+def _get_preset_voice_language(engine: str, voice_id: str) -> str | None:
+    """Return a preset voice's language after verifying its identifier."""
+    if engine == "kokoro":
+        from ..backends.kokoro_backend import KOKORO_VOICES
+
+        return next(
+            (language for identifier, _name, _gender, language in KOKORO_VOICES if identifier == voice_id), None
+        )
+
+    if engine == "qwen_custom_voice":
+        from ..backends.qwen_custom_voice_backend import QWEN_CUSTOM_VOICES
+
+        return next(
+            (
+                language
+                for identifier, _name, _gender, language, _description in QWEN_CUSTOM_VOICES
+                if identifier == voice_id
+            ),
+            None,
+        )
+
+    return None
+
+
+def _get_preset_preview_cache_path(engine: str, voice_id: str) -> Path:
+    """Return the local audio cache path for a versioned preset preview."""
+    return _get_cache_dir() / "preset_previews" / engine / f"{voice_id}-{_PRESET_PREVIEW_CACHE_VERSION}.wav"
+
+
+def _read_preset_preview_cache(cache_path: Path) -> bytes | None:
+    """Read a non-empty cached preview, treating failed reads as cache misses."""
+    try:
+        wav_bytes = cache_path.read_bytes()
+        return wav_bytes or None
+    except OSError:
+        return None
+
+
+def _write_preset_preview_cache(cache_path: Path, wav_bytes: bytes) -> None:
+    """Atomically persist a generated preview so browsers can replay it locally."""
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(dir=cache_path.parent, delete=False) as temp_file:
+        temp_file.write(wav_bytes)
+        temp_path = Path(temp_file.name)
+
+    try:
+        os.replace(temp_path, cache_path)
+    except Exception:
+        temp_path.unlink(missing_ok=True)
+        raise
+
+
+async def generate_preset_voice_preview(engine: str, voice_id: str) -> bytes:
+    """Return a cached native-language preview, generating it once when missing."""
+    language = _get_preset_voice_language(engine, voice_id)
+    if language is None:
+        raise ValueError(f"Preset voice '{voice_id}' is not valid for engine '{engine}'")
+
+    from ..backends import ensure_model_cached_or_raise, get_tts_backend_for_engine, load_engine_model
+    from . import tts
+
+    cache_path = _get_preset_preview_cache_path(engine, voice_id)
+    cached_preview = await asyncio.to_thread(_read_preset_preview_cache, cache_path)
+    if cached_preview is not None:
+        return cached_preview
+
+    # 业务规则：每个内置声音仅在本地首次试听时生成，之后浏览器取得的是缓存 WAV，  # noqa: RUF003
+    # 不再触发模型推理；升级试听文案或生成规则时递增缓存版本以自动重新生成。  # noqa: RUF003
+    # 试听不会创建档案或生成历史。Qwen CustomVoice 档案默认使用 1.7B，试听保持一致。  # noqa: RUF003
+    model_size = "1.7B" if engine == "qwen_custom_voice" else "default"
+    await ensure_model_cached_or_raise(engine, model_size)
+    await load_engine_model(engine, model_size)
+
+    audio, sample_rate = await get_tts_backend_for_engine(engine).generate(
+        _PRESET_PREVIEW_TEXTS.get(language, _PRESET_PREVIEW_TEXTS["en"]),
+        {
+            "voice_type": "preset",
+            "preset_engine": engine,
+            "preset_voice_id": voice_id,
+        },
+        language=language,
+    )
+    wav_bytes = tts.audio_to_wav_bytes(audio, sample_rate)
+    await asyncio.to_thread(_write_preset_preview_cache, cache_path, wav_bytes)
+    return wav_bytes
+
+
 def _validate_profile_fields(
     *,
     voice_type: str,
@@ -86,7 +191,16 @@ def _validate_profile_fields(
     preset_voice_id: str | None,
     design_prompt: str | None,
     default_engine: str | None,
+    default_model_size: str | None,
 ) -> str | None:
+    if default_model_size is not None:
+        allowed_model_sizes = PROFILE_MODEL_SIZES.get(default_engine or "")
+        if not allowed_model_sizes or default_model_size not in allowed_model_sizes:
+            return (
+                f"Default model '{default_model_size}' is not valid for engine "
+                f"'{default_engine or 'none'}'"
+            )
+
     if voice_type == "preset":
         if not preset_engine or not preset_voice_id:
             return "Preset profiles require both preset_engine and preset_voice_id"
@@ -171,6 +285,7 @@ async def create_profile(
         preset_voice_id=data.preset_voice_id,
         design_prompt=data.design_prompt,
         default_engine=default_engine,
+        default_model_size=data.default_model_size,
     )
     if validation_error:
         raise ValueError(validation_error)
@@ -185,6 +300,7 @@ async def create_profile(
         preset_voice_id=data.preset_voice_id,
         design_prompt=data.design_prompt,
         default_engine=default_engine,
+        default_model_size=data.default_model_size,
         personality=data.personality,
         created_at=datetime.utcnow(),
         updated_at=datetime.utcnow(),
@@ -389,6 +505,13 @@ async def update_profile(
     preset_voice_id = getattr(profile, "preset_voice_id", None)
     design_prompt = getattr(profile, "design_prompt", None)
     default_engine = data.default_engine if data.default_engine is not None else getattr(profile, "default_engine", None)
+    # 业务规则：提交 default_engine 表示用户明确重选默认项，此时具体型号也
+    # 以本次 payload 为准；旧客户端完全不提交引擎字段时保留已有型号。
+    default_model_size = (
+        data.default_model_size
+        if data.default_engine is not None
+        else getattr(profile, "default_model_size", None)
+    )
 
     validation_error = _validate_profile_fields(
         voice_type=voice_type,
@@ -396,6 +519,7 @@ async def update_profile(
         preset_voice_id=preset_voice_id,
         design_prompt=design_prompt,
         default_engine=default_engine,
+        default_model_size=default_model_size,
     )
     if validation_error:
         raise ValueError(validation_error)
@@ -406,6 +530,7 @@ async def update_profile(
     profile.personality = data.personality
     if data.default_engine is not None:
         profile.default_engine = data.default_engine or None  # empty string → NULL
+        profile.default_model_size = default_model_size if data.default_engine else None
     profile.updated_at = datetime.utcnow()
 
     db.commit()

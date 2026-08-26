@@ -47,6 +47,8 @@ export function FloatingGenerateBox({
   const [selectedPresetId, setSelectedPresetId] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const autoFilledInstructRef = useRef<string | null>(null);
+  const instructProfileIdRef = useRef<string | null>(null);
   const matchRoute = useMatchRoute();
   const isStoriesRoute = matchRoute({ to: '/stories' });
   const selectedStoryId = useStoryStore((state) => state.selectedStoryId);
@@ -57,7 +59,7 @@ export function FloatingGenerateBox({
 
   const composeMutation = useMutation({
     mutationFn: async () => {
-      if (!selectedProfileId) throw new Error('No profile selected');
+      if (!selectedProfileId) throw new Error('未选择声音档案');
       return apiClient.composeWithPersonality(selectedProfileId);
     },
     onError: (err: Error) => {
@@ -139,6 +141,7 @@ export function FloatingGenerateBox({
   const watchedEngine = form.watch('engine');
   const watchedLanguage = form.watch('language');
   const watchedCosyvoiceMode = form.watch('cosyvoiceMode');
+  const watchedInstruct = form.watch('instruct');
   const supportsCosyvoiceMode = watchedEngine === 'cosyvoice';
   const supportsInstruct =
     watchedEngine === 'qwen_custom_voice' ||
@@ -171,6 +174,16 @@ export function FloatingGenerateBox({
     const engine = selectedProfile?.default_engine ?? selectedProfile?.preset_engine;
     if (engine) {
       form.setValue('engine', engine as EngineValue);
+      // 业务规则：默认模型属于声音档案的一部分。切换档案时必须同步切换
+      // CosyVoice 的 RL/Base；其他多型号引擎则恢复各自的安全默认值，避免
+      // 沿用上一档案留下的、与当前引擎不兼容的 modelSize。
+      if (engine === 'cosyvoice') {
+        form.setValue('modelSize', selectedProfile?.default_model_size === 'base' ? 'base' : 'rl');
+      } else if (engine === 'tada') {
+        form.setValue('modelSize', '1B');
+      } else if (engine === 'qwen' || engine === 'qwen_custom_voice') {
+        form.setValue('modelSize', '1.7B');
+      }
     } else if (selectedProfile && selectedProfile.voice_type !== 'preset') {
       // Cloned/designed profile with no default — ensure a compatible (non-preset) engine
       const currentEngine = form.getValues('engine');
@@ -203,6 +216,61 @@ export function FloatingGenerateBox({
       setSelectedPresetId(null);
     }
   }, [selectedProfile, effectPresets, form]);
+
+  useEffect(() => {
+    if (!isInstructExpanded || !selectedProfile) return;
+
+    const taskSetting = selectedProfile.personality?.trim() ?? '';
+    // 兼容历史上可能超过新上限的存量档案，朗读指令始终最多 500 字。
+    const suggestedInstruct = taskSetting.slice(0, 500);
+    const previousProfileId = instructProfileIdRef.current;
+    const profileChanged = previousProfileId !== selectedProfile.id;
+    instructProfileIdRef.current = selectedProfile.id;
+
+    // 业务规则：朗读指令开启时，切换声音档案等于切换任务上下文。
+    // 新档案的人物设定必须替换上一档案的朗读指令；没有人物设定则清空，
+    // 不能继续携带上一声音档案的指令内容。
+    if (profileChanged) {
+      form.setValue('instruct', suggestedInstruct, {
+        shouldDirty: false,
+        shouldTouch: false,
+        shouldValidate: false,
+      });
+      autoFilledInstructRef.current = suggestedInstruct || null;
+      if (suggestedInstruct) setIsInstructExpanded(true);
+      return;
+    }
+
+    const currentInstruct = watchedInstruct?.trim() ?? '';
+    const instructIsDirty = form.getFieldState('instruct').isDirty;
+    const isPreviousAutoFill =
+      !instructIsDirty &&
+      autoFilledInstructRef.current !== null &&
+      currentInstruct === autoFilledInstructRef.current;
+
+    if (!taskSetting) {
+      if (isPreviousAutoFill) {
+        form.setValue('instruct', '', { shouldDirty: false });
+        autoFilledInstructRef.current = null;
+      }
+      return;
+    }
+
+    // 业务规则：朗读指令开启时，人物设定只作为朗读指令的初始建议。
+    // 只有空白且未编辑的输入框，或仍保持上一次自动填充内容的输入框才会更新，
+    // 避免切换声音档案、引擎或全局设置时覆盖用户已编辑的朗读指令。
+    const canAutoFill = (!currentInstruct && !instructIsDirty) || isPreviousAutoFill;
+
+    if (!canAutoFill || currentInstruct === suggestedInstruct) return;
+
+    form.setValue('instruct', suggestedInstruct, {
+      shouldDirty: false,
+      shouldTouch: false,
+      shouldValidate: false,
+    });
+    autoFilledInstructRef.current = suggestedInstruct;
+    setIsInstructExpanded(true);
+  }, [form, isInstructExpanded, selectedProfile, watchedInstruct]);
 
   // Auto-resize textarea based on content (only when expanded)
   useEffect(() => {
@@ -569,7 +637,6 @@ export function FloatingGenerateBox({
                       </Select>
                     </div>
                   )}
-
 
                   <FormField
                     control={form.control}

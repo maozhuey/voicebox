@@ -48,7 +48,7 @@ export function MultiSelect({
   options,
   value,
   onChange,
-  placeholder = 'Select...',
+  placeholder = '请选择…',
   className,
 }: MultiSelectProps) {
   const [open, setOpen] = React.useState(false);

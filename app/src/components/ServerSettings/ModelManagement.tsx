@@ -48,51 +48,44 @@ import { useServerStore } from '@/stores/serverStore';
 
 async function fetchHuggingFaceModelInfo(repoId: string): Promise<HuggingFaceModelInfo> {
   const response = await fetch(`https://huggingface.co/api/models/${repoId}`);
-  if (!response.ok) throw new Error(`Failed to fetch model info: ${response.status}`);
+  if (!response.ok) throw new Error(`获取模型信息失败：${response.status}`);
   return response.json();
 }
 
 const MODEL_DESCRIPTIONS: Record<string, string> = {
   'qwen-tts-1.7B':
-    'High-quality multilingual TTS by Alibaba. Supports 10 languages with natural prosody and voice cloning from short reference audio.',
-  'qwen-tts-0.6B':
-    'Lightweight version of Qwen TTS. Same language support with faster inference, ideal for lower-end hardware.',
+    '阿里巴巴推出的高质量多语言语音模型，支持 10 种语言、自然韵律，并可通过短参考音频克隆声音。',
+  'qwen-tts-0.6B': 'Qwen TTS 轻量版，语言支持相同、推理速度更快，适合配置较低的设备。',
   luxtts:
-    'Lightweight ZipVoice-based TTS designed for high quality voice cloning and 48kHz speech generation at speeds exceeding 150x realtime.',
+    '基于 ZipVoice 的轻量语音模型，支持高质量声音克隆和 48 kHz 语音生成，速度可超过实时的 150 倍。',
   'chatterbox-tts':
-    'Production-grade open source TTS by Resemble AI. Supports 23 languages with voice cloning and emotion exaggeration control.',
-  'chatterbox-turbo':
-    'Streamlined 350M parameter TTS by Resemble AI. High-quality English speech with less compute and VRAM than larger models.',
+    'Resemble AI 推出的生产级开源语音模型，支持 23 种语言、声音克隆和情感强度控制。',
+  'chatterbox-turbo': 'Resemble AI 推出的 3.5 亿参数精简模型，以更少算力和显存生成高质量英语语音。',
   'tada-1b':
-    'HumeAI TADA 1B — English speech-language model built on Llama 3.2 1B. Generates 700s+ of coherent audio with synchronized text-acoustic alignment.',
+    'HumeAI TADA 1B，基于 Llama 3.2 1B 的英语语音语言模型，可生成超过 700 秒的连贯音频，并保持文本与声学同步对齐。',
   'tada-3b-ml':
-    'HumeAI TADA 3B Multilingual — built on Llama 3.2 3B. Supports 10 languages with high-fidelity voice cloning via text-acoustic dual alignment.',
+    'HumeAI TADA 3B 多语言版，基于 Llama 3.2 3B，支持 10 种语言，并通过文本与声学双重对齐实现高保真声音克隆。',
   kokoro:
-    'Kokoro 82M by hexgrad. Tiny 82M-parameter TTS that runs at CPU realtime. Supports 8 languages with pre-built voice styles. Apache 2.0 licensed.',
+    'hexgrad 推出的 Kokoro 82M，可在 CPU 上实时运行，支持 8 种语言和预置音色，采用 Apache 2.0 协议。',
   'qwen-custom-voice-1.7B':
-    'Qwen3-TTS CustomVoice 1.7B by Alibaba. 9 premium preset voices with instruct-based style control for tone, emotion, and prosody. Supports 10 languages.',
+    '阿里巴巴推出的 Qwen3-TTS CustomVoice 1.7B，提供 9 种优质预置音色，可通过指令控制语气、情感和韵律，支持 10 种语言。',
   'qwen-custom-voice-0.6B':
-    'Qwen3-TTS CustomVoice 0.6B by Alibaba. Lightweight version with the same 9 preset voices and instruct control. Faster inference for lower-end hardware.',
+    '阿里巴巴推出的 Qwen3-TTS CustomVoice 0.6B 轻量版，同样提供 9 种预置音色和指令控制，推理更快，适合配置较低的设备。',
   'cosyvoice3-0.5b-rl':
-    'CosyVoice 3 0.5B RL by FunAudioLLM. Recommended for reliable multilingual reading, zero-shot voice cloning, and natural-language style control.',
+    'FunAudioLLM 推出的 CosyVoice 3 0.5B RL，推荐用于稳定的多语言朗读、零样本声音克隆和自然语言风格控制。',
   'cosyvoice3-0.5b':
-    'CosyVoice 3 0.5B base model by FunAudioLLM. Preserves slightly stronger reference-speaker similarity while supporting multilingual zero-shot cloning.',
-  'whisper-base':
-    'Smallest Whisper model (74M parameters). Fast transcription with moderate accuracy.',
-  'whisper-small':
-    'Whisper Small (244M parameters). Good balance of speed and accuracy for transcription.',
-  'whisper-medium':
-    'Whisper Medium (769M parameters). Higher accuracy transcription at moderate speed.',
-  'whisper-large':
-    'Whisper Large (1.5B parameters). Best accuracy for speech-to-text across multiple languages.',
-  'whisper-turbo':
-    'Whisper Large v3 Turbo. Pruned for significantly faster inference while maintaining near-large accuracy.',
+    'FunAudioLLM 推出的 CosyVoice 3 0.5B 基础模型，支持多语言零样本克隆，并能更好地保持与参考说话人的相似度。',
+  'whisper-base': '最小的 Whisper 模型（7400 万参数），转录速度快，准确率适中。',
+  'whisper-small': 'Whisper Small（2.44 亿参数），兼顾转录速度与准确率。',
+  'whisper-medium': 'Whisper Medium（7.69 亿参数），以适中速度提供更高的转录准确率。',
+  'whisper-large': 'Whisper Large（15 亿参数），在多语言语音转文本任务中提供最佳准确率。',
+  'whisper-turbo': 'Whisper Large v3 Turbo 剪枝版，在保持接近 Large 准确率的同时显著提升推理速度。',
   'qwen3-0.6b':
-    'Qwen3 0.6B — smallest of the Qwen3 instruct family. Very fast on CPU, runs at ~400 MB quantized on Apple Silicon. Good for dictation refinement and short completions.',
+    'Qwen3 0.6B 是 Qwen3 指令模型中最小的版本，CPU 推理速度快，在 Apple Silicon 上量化后约占 400 MB，适合听写优化和短文本补全。',
   'qwen3-1.7b':
-    'Qwen3 1.7B — balanced size and quality. Handles subtle self-corrections and technical vocabulary better than the 0.6B. Runs at ~1.1 GB quantized on Apple Silicon.',
+    'Qwen3 1.7B 兼顾体积与质量，比 0.6B 更擅长处理细微自我纠正和专业词汇，在 Apple Silicon 上量化后约占 1.1 GB。',
   'qwen3-4b':
-    'Qwen3 4B — highest quality local refinement and longer-form reasoning. ~2.5 GB quantized on Apple Silicon, ~8 GB at full precision on PyTorch.',
+    'Qwen3 4B 提供最高质量的本地文本优化和长文本推理，在 Apple Silicon 上量化后约占 2.5 GB，PyTorch 全精度约占 8 GB。',
 };
 
 function formatDownloads(n: number): string {

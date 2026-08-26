@@ -267,12 +267,12 @@
       "referenceTextPlaceholder": "輸入音訊中所說的確切文字……",
       "defaultEngine": "預設引擎",
       "noPreference": "無偏好",
-      "defaultEngineHint": "選擇此檔案時自動使用此引擎。",
+      "defaultEngineHint": "選擇此檔案時自動使用此引擎和具體模型。",
       "defaultEffects": "預設效果",
       "defaultEffectsHint": "自動套用於使用此聲音所有新生成的效果。",
-      "personalityLabel": "任務設定",
+      "personalityLabel": "人物設定",
       "personalityPlaceholder": "例如：你是一位樸實的果農，用簡短、可信、不誇張的口吻介紹產品賣點。",
-      "personalityHint": "用於生成頁面的「撰寫」功能：AI 會根據這裡的人物身分、表達習慣和內容要求生成新台詞。任務設定不會改變聲音音色，也不會自動控制朗讀情感；朗讀風格請使用支援模型的「朗讀指令」。留空則隱藏「撰寫」按鈕。"
+      "personalityHint": "用於「撰寫」新台詞。開啟「自然朗讀增強」時，支援朗讀指令的模型還會將這裡的內容預填到朗讀指令中，可在每個任務中單獨編輯。不會改變聲音音色；留空則不預填並隱藏「撰寫」。"
     },
     "avatar": {
       "alt": "頭像預覽"

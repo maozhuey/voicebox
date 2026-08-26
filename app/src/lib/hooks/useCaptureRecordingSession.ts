@@ -3,11 +3,7 @@ import { emit as tauriEmit } from '@tauri-apps/api/event';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { PillState } from '@/components/CapturePill/CapturePill';
 import { apiClient } from '@/lib/api/client';
-import type {
-  CaptureListResponse,
-  CaptureResponse,
-  CaptureSource,
-} from '@/lib/api/types';
+import type { CaptureListResponse, CaptureResponse, CaptureSource } from '@/lib/api/types';
 import { useAudioRecording } from '@/lib/hooks/useAudioRecording';
 
 /**
@@ -49,7 +45,7 @@ const BRIEF_NOTICE_MS = 2000;
 // nor ffmpeg will accept. Caught client-side and surfaced as a friendly
 // "Recording too short, canceled" pill instead of bubbling up a 400.
 const MIN_RECORDING_DURATION_S = 0.5;
-const SHORT_RECORDING_MESSAGE = 'Recording too short, canceled';
+const SHORT_RECORDING_MESSAGE = '录音时间太短，已取消';
 
 export type CapturePillState = PillState | 'hidden';
 
@@ -68,11 +64,7 @@ export interface UseCaptureRecordingSessionOptions {
    * lands after the user flips the toggle still uses the value the capture
    * was created under.
    */
-  onFinalText?: (
-    text: string,
-    capture: CaptureResponse,
-    allowAutoPaste: boolean,
-  ) => void;
+  onFinalText?: (text: string, capture: CaptureResponse, allowAutoPaste: boolean) => void;
 }
 
 export interface UseCaptureRecordingSessionResult {
@@ -160,7 +152,7 @@ export function useCaptureRecordingSession(
     (message: string, durationMs: number = ERROR_PILL_VISIBLE_MS) => {
       clearRestTimer();
       clearErrorTimer();
-      setErrorMessage(message || 'Something went wrong');
+      setErrorMessage(message || '操作失败');
       setPillState('error');
       errorTimerRef.current = window.setTimeout(() => {
         setPillState('hidden');
@@ -198,7 +190,7 @@ export function useCaptureRecordingSession(
       }
     },
     onError: (err: Error) => {
-      showError(err.message || 'Refinement failed');
+      showError(err.message || '文本优化失败');
     },
   });
 
@@ -221,11 +213,7 @@ export function useCaptureRecordingSession(
       } else {
         if (pillStateRef.current === 'transcribing') scheduleHidePill();
         if (capture.transcript_raw) {
-          onFinalTextRef.current?.(
-            capture.transcript_raw,
-            capture,
-            capture.allow_auto_paste,
-          );
+          onFinalTextRef.current?.(capture.transcript_raw, capture, capture.allow_auto_paste);
         }
       }
     },
@@ -238,7 +226,7 @@ export function useCaptureRecordingSession(
       if (/could not decode/i.test(msg) || /empty or corrupt/i.test(msg)) {
         showError(SHORT_RECORDING_MESSAGE, BRIEF_NOTICE_MS);
       } else {
-        showError(msg || 'Upload failed');
+        showError(msg || '上传失败');
       }
     },
   });
@@ -308,8 +296,7 @@ export function useCaptureRecordingSession(
     [refineMutation],
   );
 
-  const pillElapsedMs =
-    pillState === 'recording' ? Math.round(duration * 1000) : frozenElapsedMs;
+  const pillElapsedMs = pillState === 'recording' ? Math.round(duration * 1000) : frozenElapsedMs;
 
   return {
     pillState,

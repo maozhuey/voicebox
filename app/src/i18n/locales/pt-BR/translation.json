@@ -272,7 +272,7 @@
       "defaultEffectsHint": "Efeitos aplicados automaticamente a todas as novas gerações com esta voz.",
       "personalityLabel": "Personalidade",
       "personalityPlaceholder": "ex.: \"um pirata rabugento que só fala em metáforas náuticas\"",
-      "personalityHint": "Usado pelo Compor para gerar novas falas com base no personagem, em seus hábitos de expressão e nos requisitos de conteúdo. Não altera a voz nem controla automaticamente a interpretação. Deixe em branco para ocultar o Compor."
+      "personalityHint": "Usado pelo Compor para gerar novas falas. Com a leitura natural aprimorada ativa, os modelos compatíveis também preenchem as instruções de interpretação com este conteúdo, que pode ser editado em cada tarefa. Não altera o timbre; deixe em branco para não preencher e ocultar o Compor."
     },
     "avatar": {
       "alt": "Pré-visualização do avatar"

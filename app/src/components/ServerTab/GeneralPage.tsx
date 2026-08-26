@@ -12,6 +12,7 @@ import { Toggle } from '@/components/ui/toggle';
 import { useToast } from '@/components/ui/use-toast';
 import { useAutoUpdater } from '@/hooks/useAutoUpdater';
 import { useServerHealth } from '@/lib/hooks/useServer';
+import { toChineseErrorMessage } from '@/lib/utils/errorMessage';
 import { usePlatform } from '@/platform/PlatformContext';
 import { useServerStore } from '@/stores/serverStore';
 import { CloudSection } from './CloudSection';
@@ -320,7 +321,7 @@ function UpdatesSection() {
             <SettingRow title={t('settings.general.updates.error')}>
               <div className="flex items-center gap-2 text-sm text-destructive">
                 <AlertCircle className="h-4 w-4" />
-                {status.error}
+                {toChineseErrorMessage(status.error, t('settings.general.updates.error'))}
               </div>
             </SettingRow>
           )}

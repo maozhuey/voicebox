@@ -60,7 +60,7 @@ export function useModelDownloadToast({
       description: (
         <div className="flex items-center gap-2">
           <Loader2 className="h-4 w-4 animate-spin" />
-          <span>Connecting to download...</span>
+          <span>正在连接下载服务…</span>
         </div>
       ),
       duration: Infinity, // Don't auto-dismiss, we'll handle it manually
@@ -92,24 +92,24 @@ export function useModelDownloadToast({
 
           // Determine status icon and text
           let statusIcon: React.ReactNode = null;
-          let statusText = 'Processing...';
+          let statusText = '处理中…';
 
           switch (progress.status) {
             case 'complete':
               statusIcon = <CheckCircle2 className="h-4 w-4 text-green-500" />;
-              statusText = 'Download complete';
+              statusText = '下载完成';
               break;
             case 'error':
               statusIcon = <XCircle className="h-4 w-4 text-destructive" />;
-              statusText = 'Download failed. See Problems panel for details.';
+              statusText = '下载失败，请查看问题面板了解详情。';
               break;
             case 'downloading':
               statusIcon = <Loader2 className="h-4 w-4 animate-spin" />;
-              statusText = progress.filename || 'Downloading...';
+              statusText = progress.filename || '正在下载…';
               break;
             case 'extracting':
               statusIcon = <Loader2 className="h-4 w-4 animate-spin" />;
-              statusText = 'Extracting...';
+              statusText = '正在解压…';
               break;
           }
 
@@ -158,7 +158,7 @@ export function useModelDownloadToast({
                     <span>{displayName}</span>
                   </div>
                 ),
-                description: 'Download complete',
+                description: '下载完成',
                 duration: 3000,
               });
             }
@@ -169,7 +169,7 @@ export function useModelDownloadToast({
               onComplete();
             } else if (isError && onError) {
               console.log('[useModelDownloadToast] Download error, calling onError callback');
-              onError(progress.error || 'Unknown error');
+              onError(progress.error || '未知错误');
             }
           }
         }
@@ -188,7 +188,7 @@ export function useModelDownloadToast({
       if (toastIdRef.current && toastUpdateRef.current) {
         toastUpdateRef.current({
           title: displayName,
-          description: 'Failed to track download progress',
+          description: '无法获取下载进度',
           variant: 'destructive',
           duration: 5000,
         });

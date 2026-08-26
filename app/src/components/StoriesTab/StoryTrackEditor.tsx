@@ -166,15 +166,15 @@ function ClipVolumePopover({
           variant="ghost"
           size="icon"
           className="h-7 w-7"
-          title={`Volume — ${display}%`}
-          aria-label="Adjust clip volume"
+          title={`音量 — ${display}%`}
+          aria-label="调整片段音量"
         >
           <Icon className="h-4 w-4" />
         </Button>
       </PopoverTrigger>
       <PopoverContent align="center" className="w-56 p-3">
         <div className="flex items-center justify-between mb-2">
-          <span className="text-xs text-muted-foreground">Volume</span>
+          <span className="text-xs text-muted-foreground">音量</span>
           <span className="text-xs tabular-nums">{display}%</span>
         </div>
         <Slider
@@ -184,7 +184,7 @@ function ClipVolumePopover({
           min={0}
           max={200}
           step={1}
-          aria-label="Clip volume"
+          aria-label="片段音量"
         />
         <div className="flex justify-between mt-2 text-[10px] text-muted-foreground tabular-nums">
           <span>0%</span>
@@ -278,7 +278,7 @@ export function StoryTrackEditor({ storyId, items }: StoryTrackEditorProps) {
         {
           onError: (error) => {
             toast({
-              title: 'Failed to set version',
+              title: '设置版本失败',
               description: error instanceof Error ? error.message : String(error),
               variant: 'destructive',
             });
@@ -466,7 +466,10 @@ export function StoryTrackEditor({ storyId, items }: StoryTrackEditorProps) {
   useEffect(() => {
     if (hasAppliedDefaultZoomRef.current) return;
     if (visibleTrackWidth <= 0) return;
-    const defaultScope = Math.min(DEFAULT_VISIBLE_SECONDS, Math.max(projectSeconds, MIN_VISIBLE_SECONDS));
+    const defaultScope = Math.min(
+      DEFAULT_VISIBLE_SECONDS,
+      Math.max(projectSeconds, MIN_VISIBLE_SECONDS),
+    );
     setPixelsPerSecond(visibleTrackWidth / defaultScope);
     hasAppliedDefaultZoomRef.current = true;
   }, [visibleTrackWidth, projectSeconds]);
@@ -669,7 +672,7 @@ export function StoryTrackEditor({ storyId, items }: StoryTrackEditorProps) {
         {
           onError: (error) => {
             toast({
-              title: 'Failed to trim clip',
+              title: '裁剪片段失败',
               description: error instanceof Error ? error.message : String(error),
               variant: 'destructive',
             });
@@ -698,8 +701,8 @@ export function StoryTrackEditor({ storyId, items }: StoryTrackEditorProps) {
 
     if (splitTimeMs <= 0 || splitTimeMs >= effectiveDuration) {
       toast({
-        title: 'Invalid split point',
-        description: 'Playhead must be within the selected clip',
+        title: '分割位置无效',
+        description: '播放指针必须位于所选片段内',
         variant: 'destructive',
       });
       return;
@@ -717,7 +720,7 @@ export function StoryTrackEditor({ storyId, items }: StoryTrackEditorProps) {
         },
         onError: (error) => {
           toast({
-            title: 'Failed to split clip',
+            title: '分割片段失败',
             description: error instanceof Error ? error.message : String(error),
             variant: 'destructive',
           });
@@ -746,7 +749,7 @@ export function StoryTrackEditor({ storyId, items }: StoryTrackEditorProps) {
       {
         onError: (error) => {
           toast({
-            title: 'Failed to duplicate clip',
+            title: '复制片段失败',
             description: error instanceof Error ? error.message : String(error),
             variant: 'destructive',
           });
@@ -769,7 +772,7 @@ export function StoryTrackEditor({ storyId, items }: StoryTrackEditorProps) {
         },
         onError: (error) => {
           toast({
-            title: 'Failed to delete clip',
+            title: '删除片段失败',
             description: error instanceof Error ? error.message : String(error),
             variant: 'destructive',
           });
@@ -785,7 +788,7 @@ export function StoryTrackEditor({ storyId, items }: StoryTrackEditorProps) {
       addPendingGeneration(selectedItem.generation_id);
     } catch (error) {
       toast({
-        title: 'Failed to regenerate',
+        title: '重新生成失败',
         description: error instanceof Error ? error.message : String(error),
         variant: 'destructive',
       });
@@ -875,11 +878,7 @@ export function StoryTrackEditor({ storyId, items }: StoryTrackEditorProps) {
 
       const rect = tracksRef.current.getBoundingClientRect();
       const x =
-        e.clientX -
-        rect.left +
-        tracksRef.current.scrollLeft -
-        dragOffset.x -
-        LABEL_COL_WIDTH;
+        e.clientX - rect.left + tracksRef.current.scrollLeft - dragOffset.x - LABEL_COL_WIDTH;
       // Subtract ruler height since clips are positioned relative to tracks area
       const y = e.clientY - rect.top - dragOffset.y - TIME_RULER_HEIGHT;
 
@@ -922,7 +921,7 @@ export function StoryTrackEditor({ storyId, items }: StoryTrackEditorProps) {
         {
           onError: (error) => {
             toast({
-              title: 'Failed to move item',
+              title: '移动片段失败',
               description: error instanceof Error ? error.message : String(error),
               variant: 'destructive',
             });
@@ -1032,8 +1031,7 @@ export function StoryTrackEditor({ storyId, items }: StoryTrackEditorProps) {
 
       // Recompute the thumb width that corresponded to the drag start, then
       // apply the mouse delta to the dragged edge.
-      const startTimelinePx =
-        (totalDurationMs / 1000) * drag.startPixelsPerSecond + 200;
+      const startTimelinePx = (totalDurationMs / 1000) * drag.startPixelsPerSecond + 200;
       const startThumbWidth = Math.max(
         30,
         Math.min(scrollbarTrackWidth, (containerWidth / startTimelinePx) * scrollbarTrackWidth),
@@ -1058,8 +1056,7 @@ export function StoryTrackEditor({ storyId, items }: StoryTrackEditorProps) {
             }
           : {
               type: 'right',
-              timeMs:
-                ((drag.startScrollLeft + containerWidth) / drag.startPixelsPerSecond) * 1000,
+              timeMs: ((drag.startScrollLeft + containerWidth) / drag.startPixelsPerSecond) * 1000,
             };
 
       setPixelsPerSecond(newPps);
@@ -1074,7 +1071,15 @@ export function StoryTrackEditor({ storyId, items }: StoryTrackEditorProps) {
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
     };
-  }, [maxTimelineScroll, thumbRange, scrollbarTrackWidth, containerWidth, totalDurationMs, minPps, maxPps]);
+  }, [
+    maxTimelineScroll,
+    thumbRange,
+    scrollbarTrackWidth,
+    containerWidth,
+    totalDurationMs,
+    minPps,
+    maxPps,
+  ]);
 
   if (items.length === 0) {
     return null;
@@ -1091,7 +1096,7 @@ export function StoryTrackEditor({ storyId, items }: StoryTrackEditorProps) {
           type="button"
           className="absolute top-0 left-0 right-0 h-2 cursor-ns-resize flex items-center justify-center hover:bg-muted/50 transition-colors z-20 group"
           onMouseDown={handleResizeStart}
-          aria-label="Resize track editor"
+          aria-label="调整轨道编辑器高度"
         >
           <GripHorizontal className="h-3 w-3 text-muted-foreground/50 group-hover:text-muted-foreground" />
         </button>
@@ -1105,7 +1110,7 @@ export function StoryTrackEditor({ storyId, items }: StoryTrackEditorProps) {
               size="icon"
               className="h-7 w-7"
               onClick={handlePlayPause}
-              title="Play/Pause (Space)"
+              title="播放/暂停（空格键）"
               aria-label={isCurrentlyPlaying ? 'Pause' : 'Play'}
             >
               {isCurrentlyPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
@@ -1116,7 +1121,7 @@ export function StoryTrackEditor({ storyId, items }: StoryTrackEditorProps) {
               className="h-7 w-7"
               onClick={handleStop}
               disabled={!isCurrentlyPlaying}
-              aria-label="Stop"
+              aria-label="停止"
             >
               <Square className="h-3 w-3" />
             </Button>
@@ -1133,8 +1138,8 @@ export function StoryTrackEditor({ storyId, items }: StoryTrackEditorProps) {
                 size="icon"
                 className="h-7 w-7"
                 onClick={handleSplit}
-                title="Split at playhead (S)"
-                aria-label="Split at playhead"
+                title="在播放指针处分割（S）"
+                aria-label="在播放指针处分割"
               >
                 <Scissors className="h-4 w-4" />
               </Button>
@@ -1143,8 +1148,8 @@ export function StoryTrackEditor({ storyId, items }: StoryTrackEditorProps) {
                 size="icon"
                 className="h-7 w-7"
                 onClick={handleDuplicate}
-                title="Duplicate (Cmd/Ctrl+D)"
-                aria-label="Duplicate clip"
+                title="复制（Cmd/Ctrl+D）"
+                aria-label="复制片段"
               >
                 <Copy className="h-4 w-4" />
               </Button>
@@ -1163,7 +1168,7 @@ export function StoryTrackEditor({ storyId, items }: StoryTrackEditorProps) {
                       {
                         onError: (error) => {
                           toast({
-                            title: 'Failed to update volume',
+                            title: '更新音量失败',
                             description: error instanceof Error ? error.message : String(error),
                             variant: 'destructive',
                           });
@@ -1178,8 +1183,8 @@ export function StoryTrackEditor({ storyId, items }: StoryTrackEditorProps) {
                 size="icon"
                 className="h-7 w-7"
                 onClick={handleDelete}
-                title="Delete (Delete/Backspace)"
-                aria-label="Delete clip"
+                title="删除（Delete/Backspace）"
+                aria-label="删除片段"
               >
                 <Trash2 className="h-4 w-4" />
               </Button>
@@ -1189,8 +1194,8 @@ export function StoryTrackEditor({ storyId, items }: StoryTrackEditorProps) {
                   size="icon"
                   className="h-7 w-7"
                   onClick={handleRegenerate}
-                  title="Regenerate"
-                  aria-label="Regenerate clip"
+                  title="重新生成"
+                  aria-label="重新生成片段"
                 >
                   <RotateCcw className="h-4 w-4" />
                 </Button>
@@ -1200,14 +1205,10 @@ export function StoryTrackEditor({ storyId, items }: StoryTrackEditorProps) {
                   <div className="w-px h-4 bg-border mx-1" />
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        className="h-7 gap-1.5 px-2 text-xs"
-                        title="Change version/take"
-                      >
+                      <Button variant="ghost" className="h-7 gap-1.5 px-2 text-xs" title="切换版本">
                         <GalleryVerticalEnd className="h-3.5 w-3.5" />
                         <span className="max-w-[80px] truncate">
-                          {activeVersionLabel ?? 'default'}
+                          {activeVersionLabel ?? '默认'}
                         </span>
                       </Button>
                     </DropdownMenuTrigger>
@@ -1228,7 +1229,7 @@ export function StoryTrackEditor({ storyId, items }: StoryTrackEditorProps) {
                             <span className="truncate">{version.label}</span>
                             {version.effects_chain && version.effects_chain.length > 0 && (
                               <span className="text-muted-foreground ml-auto text-[10px]">
-                                {version.effects_chain.length} fx
+                                {version.effects_chain.length} 个效果
                               </span>
                             )}
                           </DropdownMenuItem>
@@ -1243,13 +1244,13 @@ export function StoryTrackEditor({ storyId, items }: StoryTrackEditorProps) {
 
           {/* Zoom controls - right side */}
           <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground">Zoom:</span>
+            <span className="text-xs text-muted-foreground">缩放：</span>
             <Button
               variant="ghost"
               size="icon"
               className="h-6 w-6"
               onClick={handleZoomOut}
-              aria-label="Zoom out"
+              aria-label="缩小"
             >
               <Minus className="h-3 w-3" />
             </Button>
@@ -1258,7 +1259,7 @@ export function StoryTrackEditor({ storyId, items }: StoryTrackEditorProps) {
               size="icon"
               className="h-6 w-6"
               onClick={handleZoomIn}
-              aria-label="Zoom in"
+              aria-label="放大"
             >
               <Plus className="h-3 w-3" />
             </Button>
@@ -1286,7 +1287,7 @@ export function StoryTrackEditor({ storyId, items }: StoryTrackEditorProps) {
               className="h-6 border-b bg-muted/20 cursor-pointer text-left relative"
               style={{ width: `${timelineWidth}px` }}
               onClick={handleTimelineClick}
-              aria-label="Seek timeline"
+              aria-label="跳转时间轴"
             >
               {timeMarkers.map((ms) => (
                 <div
@@ -1333,8 +1334,8 @@ export function StoryTrackEditor({ storyId, items }: StoryTrackEditorProps) {
                       <button
                         type="button"
                         onClick={handleAddTrackAbove}
-                        title="Add track above"
-                        aria-label="Add track above"
+                        title="在上方添加轨道"
+                        aria-label="在上方添加轨道"
                         className="absolute top-0 right-0 left-0 h-3 flex items-center justify-center text-muted-foreground/50 hover:text-foreground hover:bg-muted/40 transition-colors"
                       >
                         <Plus className="h-2.5 w-2.5" />
@@ -1344,8 +1345,8 @@ export function StoryTrackEditor({ storyId, items }: StoryTrackEditorProps) {
                       <button
                         type="button"
                         onClick={handleAddTrackBelow}
-                        title="Add track below"
-                        aria-label="Add track below"
+                        title="在下方添加轨道"
+                        aria-label="在下方添加轨道"
                         className="absolute bottom-0 right-0 left-0 h-3 flex items-center justify-center text-muted-foreground/50 hover:text-foreground hover:bg-muted/40 transition-colors"
                       >
                         <Plus className="h-2.5 w-2.5" />
@@ -1372,7 +1373,7 @@ export function StoryTrackEditor({ storyId, items }: StoryTrackEditorProps) {
                 type="button"
                 className="absolute inset-0 z-0 cursor-pointer"
                 onClick={handleTimelineClick}
-                aria-label="Seek timeline"
+                aria-label="跳转时间轴"
               />
 
               {/* Audio clips */}
@@ -1451,14 +1452,14 @@ export function StoryTrackEditor({ storyId, items }: StoryTrackEditorProps) {
                           type="button"
                           className="trim-handle absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-primary/30 bg-primary/20 z-30 rounded-l"
                           onMouseDown={(e) => handleTrimStart(e, item, 'start')}
-                          aria-label="Trim start"
+                          aria-label="裁剪片段开头"
                         />
                         {/* Right trim handle */}
                         <button
                           type="button"
                           className="trim-handle absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-primary/30 bg-primary/20 z-30 rounded-r"
                           onMouseDown={(e) => handleTrimStart(e, item, 'end')}
-                          aria-label="Trim end"
+                          aria-label="裁剪片段结尾"
                         />
                       </>
                     )}
@@ -1478,15 +1479,9 @@ export function StoryTrackEditor({ storyId, items }: StoryTrackEditorProps) {
         </div>
 
         {/* Horizontal timeline scrollbar + zoom handles */}
-        <div
-          className="flex border-t bg-background/40"
-          style={{ height: `${SCRUB_BAR_HEIGHT}px` }}
-        >
+        <div className="flex border-t bg-background/40" style={{ height: `${SCRUB_BAR_HEIGHT}px` }}>
           <div className="w-16 shrink-0 border-r" />
-          <div
-            ref={scrollbarTrackRef}
-            className="relative flex-1 overflow-hidden select-none px-1"
-          >
+          <div ref={scrollbarTrackRef} className="relative flex-1 overflow-hidden select-none px-1">
             <div
               className="absolute top-1 bottom-1 bg-foreground/10 hover:bg-foreground/15 transition-colors group rounded-full"
               style={{ width: `${thumbWidth}px`, left: `${thumbLeft}px` }}
@@ -1495,7 +1490,7 @@ export function StoryTrackEditor({ storyId, items }: StoryTrackEditorProps) {
               {/* biome-ignore lint/a11y/noStaticElementInteractions: mouse-driven edge handle */}
               <div
                 role="slider"
-                aria-label="Zoom from left edge"
+                aria-label="从左侧边缘缩放"
                 aria-valuenow={Math.round(pixelsPerSecond)}
                 aria-valuemin={Math.round(minPps)}
                 aria-valuemax={Math.round(maxPps)}
@@ -1515,7 +1510,7 @@ export function StoryTrackEditor({ storyId, items }: StoryTrackEditorProps) {
               {/* biome-ignore lint/a11y/noStaticElementInteractions: mouse-driven edge handle */}
               <div
                 role="slider"
-                aria-label="Zoom from right edge"
+                aria-label="从右侧边缘缩放"
                 aria-valuenow={Math.round(pixelsPerSecond)}
                 aria-valuemin={Math.round(minPps)}
                 aria-valuemax={Math.round(maxPps)}

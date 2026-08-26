@@ -32,8 +32,8 @@ export function useAudioPlayer() {
       audio.addEventListener('error', () => {
         setIsPlaying(false);
         toast({
-          title: 'Playback error',
-          description: 'Failed to play audio file',
+          title: '播放失败',
+          description: '无法播放音频文件',
           variant: 'destructive',
         });
         if (audioRef.current) {

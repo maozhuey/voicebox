@@ -1,7 +1,7 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useQuery } from '@tanstack/react-query';
-import { Edit2, Mic, Monitor, Music, Upload, X } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { Edit2, Loader2, Mic, Monitor, Music, Upload, X } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 import * as z from 'zod';
@@ -52,32 +52,30 @@ import {
 import { useSystemAudioCapture } from '@/lib/hooks/useSystemAudioCapture';
 import { useTranscription } from '@/lib/hooks/useTranscription';
 import { convertToWav, formatAudioDuration, getAudioDuration } from '@/lib/utils/audio';
+import { toChineseErrorMessage } from '@/lib/utils/errorMessage';
 import { usePlatform } from '@/platform/PlatformContext';
 import { useServerStore } from '@/stores/serverStore';
 import { type ProfileFormDraft, useUIStore } from '@/stores/uiStore';
 import { AudioSampleRecording } from './AudioSampleRecording';
 import { AudioSampleSystem } from './AudioSampleSystem';
 import { AudioSampleUpload } from './AudioSampleUpload';
+import {
+  DEFAULT_ENGINE_OPTIONS,
+  getDefaultEngineSelection,
+  PRESET_ONLY_ENGINES,
+  parseDefaultEngineSelection,
+} from './profileEngineOptions';
 import { SampleList } from './SampleList';
 
 const MAX_AUDIO_DURATION_SECONDS = 30;
-const PRESET_ONLY_ENGINES = new Set(['kokoro', 'qwen_custom_voice']);
-const DEFAULT_ENGINE_OPTIONS = [
-  { value: 'qwen', label: 'Qwen3-TTS' },
-  { value: 'qwen_custom_voice', label: 'Qwen CustomVoice' },
-  { value: 'luxtts', label: 'LuxTTS' },
-  { value: 'chatterbox', label: 'Chatterbox' },
-  { value: 'chatterbox_turbo', label: 'Chatterbox Turbo' },
-  { value: 'tada', label: 'TADA' },
-  { value: 'kokoro', label: 'Kokoro 82M' },
-] as const;
+const PRESET_PREVIEW_TIMEOUT_MS = 60_000;
 
 function makeProfileSchema(t: (key: string) => string) {
   const baseProfileSchema = z.object({
     name: z.string().min(1, t('profileForm.validation.nameRequired')).max(100),
     description: z.string().max(500).optional(),
     language: z.enum(LANGUAGE_CODES as [LanguageCode, ...LanguageCode[]]),
-    personality: z.string().max(2000).optional(),
+    personality: z.string().max(500).optional(),
     sampleFile: z.instanceof(File).optional(),
     referenceText: z.string().max(1000).optional(),
     avatarFile: z.instanceof(File).optional(),
@@ -154,20 +152,24 @@ export function ProfileForm() {
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const [selectedPresetEngine, setSelectedPresetEngine] = useState<string>('kokoro');
   const [selectedPresetVoiceId, setSelectedPresetVoiceId] = useState<string>('');
+  const [previewingPresetVoiceId, setPreviewingPresetVoiceId] = useState<string | null>(null);
   const avatarInputRef = useRef<HTMLInputElement>(null);
+  const presetPreviewAudioRef = useRef<HTMLAudioElement | null>(null);
+  const presetPreviewAbortRef = useRef<AbortController | null>(null);
+  const presetPreviewTimeoutRef = useRef<number | null>(null);
   const { isPlaying, playPause, cleanup: cleanupAudio } = useAudioPlayer();
   const isCreating = !editingProfileId;
   const serverUrl = useServerStore((state) => state.serverUrl);
   const [profileEffectsChain, setProfileEffectsChain] = useState<EffectConfig[]>([]);
   const [effectsDirty, setEffectsDirty] = useState(false);
-  const [defaultEngine, setDefaultEngine] = useState<string>('');
+  const [defaultEngine, setDefaultEngine] = useState<string>('cosyvoice:rl');
 
   const form = useForm<ProfileFormValues>({
     resolver: zodResolver(makeProfileSchema(t)),
     defaultValues: {
       name: '',
       description: '',
-      language: 'en',
+      language: 'zh',
       personality: '',
       sampleFile: undefined,
       referenceText: '',
@@ -177,6 +179,28 @@ export function ProfileForm() {
 
   const selectedFile = form.watch('sampleFile');
   const selectedAvatarFile = form.watch('avatarFile');
+
+  const stopPresetVoicePreview = useCallback(() => {
+    if (presetPreviewTimeoutRef.current !== null) {
+      window.clearTimeout(presetPreviewTimeoutRef.current);
+      presetPreviewTimeoutRef.current = null;
+    }
+    presetPreviewAbortRef.current?.abort();
+    presetPreviewAbortRef.current = null;
+
+    const audio = presetPreviewAudioRef.current;
+    if (audio) {
+      audio.pause();
+      if (audio.src.startsWith('blob:')) {
+        URL.revokeObjectURL(audio.src);
+      }
+      audio.src = '';
+      presetPreviewAudioRef.current = null;
+    }
+    setPreviewingPresetVoiceId(null);
+  }, []);
+
+  useEffect(() => stopPresetVoicePreview, [stopPresetVoicePreview]);
 
   // Validate audio duration when file is selected
   useEffect(() => {
@@ -290,7 +314,7 @@ export function ProfileForm() {
     ? voiceSource === 'clone'
     : editingProfile?.voice_type !== 'preset';
   const availableDefaultEngines = DEFAULT_ENGINE_OPTIONS.filter(
-    (option) => !isSampleBasedProfile || !PRESET_ONLY_ENGINES.has(option.value),
+    (option) => !isSampleBasedProfile || !PRESET_ONLY_ENGINES.has(option.engine),
   );
 
   // Show recording errors
@@ -341,7 +365,9 @@ export function ProfileForm() {
       });
       setProfileEffectsChain(editingProfile.effects_chain ?? []);
       setEffectsDirty(false);
-      setDefaultEngine(editingProfile.default_engine ?? '');
+      setDefaultEngine(
+        getDefaultEngineSelection(editingProfile.default_engine, editingProfile.default_model_size),
+      );
     } else if (profileFormDraft && open) {
       // Restore from draft when opening in create mode
       form.reset({
@@ -354,6 +380,7 @@ export function ProfileForm() {
         avatarFile: undefined,
       });
       setSampleMode(profileFormDraft.sampleMode);
+      setDefaultEngine(profileFormDraft.defaultEngine || 'cosyvoice:rl');
       // Restore the file if we have it saved
       if (
         profileFormDraft.sampleFileData &&
@@ -372,7 +399,7 @@ export function ProfileForm() {
       form.reset({
         name: '',
         description: '',
-        language: 'en',
+        language: 'zh',
         personality: '',
         sampleFile: undefined,
         referenceText: undefined,
@@ -380,6 +407,7 @@ export function ProfileForm() {
       });
       setSampleMode('record');
       setAvatarPreview(null);
+      setDefaultEngine('cosyvoice:rl');
     }
   }, [editingProfile, profileFormDraft, open, form]);
 
@@ -420,8 +448,7 @@ export function ProfileForm() {
     } catch (error) {
       toast({
         title: t('profileForm.toast.transcribeFailed'),
-        description:
-          error instanceof Error ? error.message : t('profileForm.toast.transcribeFailedFallback'),
+        description: toChineseErrorMessage(error, t('profileForm.toast.transcribeFailedFallback')),
         variant: 'destructive',
       });
     }
@@ -440,6 +467,81 @@ export function ProfileForm() {
   function handlePlayPause() {
     const file = form.getValues('sampleFile');
     playPause(file);
+  }
+
+  function handlePresetEngineChange(engine: string) {
+    stopPresetVoicePreview();
+    setSelectedPresetEngine(engine);
+    setSelectedPresetVoiceId('');
+  }
+
+  async function handlePresetVoiceSelect(voice: PresetVoice) {
+    // 业务规则：内置声音的点击即为试听操作。新选择必须取消旧请求并停止旧音频，
+    // 避免用户快速切换卡片时，最后播放的却是之前选中的声音。
+    stopPresetVoicePreview();
+    setSelectedPresetVoiceId(voice.voice_id);
+    if (voice.language) {
+      form.setValue('language', voice.language as LanguageCode);
+    }
+
+    const controller = new AbortController();
+    presetPreviewAbortRef.current = controller;
+    setPreviewingPresetVoiceId(voice.voice_id);
+    // 业务规则：试听只服务于当前卡片的即时选择。模型推理异常卡住时，60 秒后
+    // 必须取消请求、停止加载状态并提示用户，而不能让卡片一直显示加载动画。
+    presetPreviewTimeoutRef.current = window.setTimeout(() => {
+      if (presetPreviewAbortRef.current === controller) {
+        stopPresetVoicePreview();
+        toast({
+          title: t('profileForm.builtin.previewFailed'),
+          description: t('profileForm.builtin.previewTimeout'),
+          variant: 'destructive',
+        });
+      }
+    }, PRESET_PREVIEW_TIMEOUT_MS);
+
+    try {
+      const preview = await apiClient.previewPresetVoice(
+        selectedPresetEngine,
+        voice.voice_id,
+        controller.signal,
+      );
+      if (controller.signal.aborted) return;
+
+      const audio = new Audio(URL.createObjectURL(preview));
+      presetPreviewAudioRef.current = audio;
+      audio.onended = () => {
+        if (presetPreviewAudioRef.current === audio) {
+          stopPresetVoicePreview();
+        }
+      };
+      audio.onerror = () => {
+        if (presetPreviewAudioRef.current === audio) {
+          stopPresetVoicePreview();
+          toast({ title: t('profileForm.builtin.previewFailed'), variant: 'destructive' });
+        }
+      };
+      await audio.play();
+      if (presetPreviewAudioRef.current === audio) {
+        setPreviewingPresetVoiceId(null);
+      }
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      stopPresetVoicePreview();
+      toast({
+        title: t('profileForm.builtin.previewFailed'),
+        description: toChineseErrorMessage(error, t('common.unknownError')),
+        variant: 'destructive',
+      });
+    } finally {
+      if (
+        presetPreviewAbortRef.current === controller &&
+        presetPreviewTimeoutRef.current !== null
+      ) {
+        window.clearTimeout(presetPreviewTimeoutRef.current);
+        presetPreviewTimeoutRef.current = null;
+      }
+    }
   }
 
   function handleAvatarFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -476,7 +578,7 @@ export function ProfileForm() {
       } catch (error) {
         toast({
           title: t('profileForm.toast.avatarRemoveFailed'),
-          description: error instanceof Error ? error.message : t('common.unknownError'),
+          description: toChineseErrorMessage(error, t('common.unknownError')),
           variant: 'destructive',
         });
       }
@@ -490,6 +592,7 @@ export function ProfileForm() {
 
   async function onSubmit(data: ProfileFormValues) {
     try {
+      const defaultSelection = parseDefaultEngineSelection(defaultEngine);
       if (editingProfileId) {
         // Editing: update profile
         await updateProfile.mutateAsync({
@@ -498,7 +601,10 @@ export function ProfileForm() {
             name: data.name,
             description: data.description,
             language: data.language,
-            default_engine: defaultEngine || undefined,
+            // 编辑时空字符串表示明确清除默认引擎，不能转成 undefined，
+            // 否则后端会按“未提交该字段”处理并保留原值。
+            default_engine: defaultSelection.engine,
+            default_model_size: defaultSelection.modelSize,
             personality: data.personality?.trim() ? data.personality.trim() : undefined,
           },
         });
@@ -513,10 +619,10 @@ export function ProfileForm() {
           } catch (avatarError) {
             toast({
               title: t('profileForm.toast.avatarUploadFailed'),
-              description:
-                avatarError instanceof Error
-                  ? avatarError.message
-                  : t('profileForm.toast.avatarUploadFailedFallback'),
+              description: toChineseErrorMessage(
+                avatarError,
+                t('profileForm.toast.avatarUploadFailedFallback'),
+              ),
               variant: 'destructive',
             });
           }
@@ -578,10 +684,10 @@ export function ProfileForm() {
           } catch (avatarError) {
             toast({
               title: t('profileForm.toast.avatarUploadFailed'),
-              description:
-                avatarError instanceof Error
-                  ? avatarError.message
-                  : t('profileForm.toast.avatarUploadFailedFallback'),
+              description: toChineseErrorMessage(
+                avatarError,
+                t('profileForm.toast.avatarUploadFailedFallback'),
+              ),
               variant: 'destructive',
             });
           }
@@ -649,8 +755,7 @@ export function ProfileForm() {
           });
           toast({
             title: t('profileForm.toast.validationError'),
-            description:
-              error instanceof Error ? error.message : t('profileForm.validation.audioFailed'),
+            description: toChineseErrorMessage(error, t('profileForm.validation.audioFailed')),
             variant: 'destructive',
           });
           return;
@@ -661,7 +766,8 @@ export function ProfileForm() {
           name: data.name,
           description: data.description,
           language: data.language,
-          default_engine: defaultEngine || undefined,
+          default_engine: defaultSelection.engine || undefined,
+          default_model_size: defaultSelection.modelSize,
           personality: data.personality?.trim() ? data.personality.trim() : undefined,
         });
 
@@ -694,9 +800,8 @@ export function ProfileForm() {
               });
             } catch (avatarError) {
               toast({
-                title: 'Avatar upload failed',
-                description:
-                  avatarError instanceof Error ? avatarError.message : 'Failed to upload avatar',
+                title: '头像上传失败',
+                description: toChineseErrorMessage(avatarError, '无法上传头像'),
                 variant: 'destructive',
               });
             }
@@ -747,7 +852,7 @@ export function ProfileForm() {
     } catch (error) {
       toast({
         title: t('common.error'),
-        description: error instanceof Error ? error.message : t('profileForm.toast.saveFailed'),
+        description: toChineseErrorMessage(error, t('profileForm.toast.saveFailed')),
         variant: 'destructive',
       });
     }
@@ -764,8 +869,9 @@ export function ProfileForm() {
         const draft: ProfileFormDraft = {
           name: values.name || '',
           description: values.description || '',
-          language: values.language || 'en',
+          language: values.language || 'zh',
           personality: values.personality || '',
+          defaultEngine,
           referenceText: values.referenceText || '',
           sampleMode,
         };
@@ -796,6 +902,7 @@ export function ProfileForm() {
         cancelSystemRecording();
       }
       cleanupAudio();
+      stopPresetVoicePreview();
     }
   }
 
@@ -827,13 +934,14 @@ export function ProfileForm() {
                     form.reset({
                       name: '',
                       description: '',
-                      language: 'en',
+                      language: 'zh',
                       personality: '',
                       sampleFile: undefined,
                       referenceText: '',
                       avatarFile: undefined,
                     });
                     setSampleMode('record');
+                    setDefaultEngine('cosyvoice:rl');
                   }}
                 >
                   <X className="h-3 w-3 mr-1" />
@@ -855,7 +963,13 @@ export function ProfileForm() {
                         <div className="inline-flex rounded-lg border border-border p-0.5 bg-muted/50">
                           <button
                             type="button"
-                            onClick={() => setVoiceSource('clone')}
+                            onClick={() => {
+                              stopPresetVoicePreview();
+                              setVoiceSource('clone');
+                              // 新建克隆声音的产品默认值固定为 CosyVoice RL；
+                              // 从内置声音切回克隆来源时也要恢复该默认选择。
+                              setDefaultEngine('cosyvoice:rl');
+                            }}
                             className={`inline-flex items-center gap-2 px-3 py-1.5 text-sm rounded-md transition-colors ${
                               voiceSource === 'clone'
                                 ? 'bg-accent text-accent-foreground shadow-sm'
@@ -888,7 +1002,7 @@ export function ProfileForm() {
                             <FormLabel>{t('profileForm.fields.engine')}</FormLabel>
                             <Select
                               value={selectedPresetEngine}
-                              onValueChange={setSelectedPresetEngine}
+                              onValueChange={handlePresetEngineChange}
                             >
                               <FormControl>
                                 <SelectTrigger>
@@ -910,20 +1024,19 @@ export function ProfileForm() {
                                 <button
                                   key={voice.voice_id}
                                   type="button"
-                                  onClick={() => {
-                                    setSelectedPresetVoiceId(voice.voice_id);
-                                    // Auto-set language from voice
-                                    if (voice.language) {
-                                      form.setValue('language', voice.language as LanguageCode);
-                                    }
-                                  }}
+                                  onClick={() => handlePresetVoiceSelect(voice)}
                                   className={`text-left px-3 py-2 rounded-md border text-sm transition-colors ${
                                     selectedPresetVoiceId === voice.voice_id
                                       ? 'border-accent bg-accent/10 text-accent-foreground'
                                       : 'border-border hover:bg-muted'
                                   }`}
                                 >
-                                  <div className="font-medium">{voice.name}</div>
+                                  <div className="flex items-center justify-between gap-2 font-medium">
+                                    {voice.name}
+                                    {previewingPresetVoiceId === voice.voice_id && (
+                                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                    )}
+                                  </div>
                                   <div className="flex gap-1.5 mt-0.5">
                                     <Badge variant="outline" className="text-[10px] h-4 px-1">
                                       {voice.gender}
@@ -1204,12 +1317,11 @@ export function ProfileForm() {
                           <Textarea
                             placeholder={t('profileForm.fields.personalityPlaceholder')}
                             className="min-h-[96px]"
+                            maxLength={500}
                             {...field}
                           />
                         </FormControl>
-                        <FormDescription>
-                          {t('profileForm.fields.personalityHint')}
-                        </FormDescription>
+                        <FormDescription>{t('profileForm.fields.personalityHint')}</FormDescription>
                         <FormMessage />
                       </FormItem>
                     )}

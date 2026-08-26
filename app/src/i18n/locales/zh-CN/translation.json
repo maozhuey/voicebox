@@ -248,7 +248,9 @@
     "builtin": {
       "hint": "选择一个预建的声音。这些不需要音频样本。",
       "badge": "内置声音",
-      "note": "此档案使用内置声音。创建后声音无法更改。"
+      "note": "此档案使用内置声音。创建后声音无法更改。",
+      "previewFailed": "声音预览失败",
+      "previewTimeout": "生成预览超时，请重试。"
     },
     "sampleTabs": {
       "upload": "上传",
@@ -267,12 +269,12 @@
       "referenceTextPlaceholder": "输入音频中所说的准确文字……",
       "defaultEngine": "默认引擎",
       "noPreference": "无偏好",
-      "defaultEngineHint": "选择该档案时自动使用此引擎。",
+      "defaultEngineHint": "选择该档案时自动使用此引擎和具体模型。",
       "defaultEffects": "默认效果",
       "defaultEffectsHint": "自动应用于使用此声音的所有新生成的效果。",
-      "personalityLabel": "任务设定",
+      "personalityLabel": "人物设定",
       "personalityPlaceholder": "例如：你是一位朴实的果农，用简短、可信、不夸张的口吻介绍产品卖点。",
-      "personalityHint": "用于生成页面的「撰写」功能：AI 会根据这里的人物身份、表达习惯和内容要求生成新台词。任务设定不会改变声音音色，也不会自动控制朗读情感；朗读风格请使用支持模型的「朗读指令」。留空则隐藏「撰写」按钮。"
+      "personalityHint": "用于「撰写」新台词。开启「朗读指令」时，支持该功能的模型会把这里的内容预填到朗读指令中，可在每个任务中单独编辑。不会改变声音音色；留空则清空朗读指令并隐藏「撰写」。最多 500 字。"
     },
     "avatar": {
       "alt": "头像预览"
@@ -632,6 +634,19 @@
       "regenerate": "重新生成",
       "removeFromStory": "从故事中移除"
     },
+    "generationConfig": {
+      "title": "本次生成配置",
+      "voice": "声音：{{value}}",
+      "language": "语言：{{value}}",
+      "model": "模型：{{value}}",
+      "mode": "生成方式：{{value}}",
+      "dialect": "方言：{{value}}",
+      "effects": "效果：{{value}}",
+      "naturalReading": "自然朗读：{{value}}",
+      "instruct": "朗读指令：{{value}}",
+      "enabled": "开启",
+      "disabled": "关闭"
+    },
     "importAudio": "导入音频…",
     "importing": "正在导入…",
     "dropToImport": "拖放以导入音频",
@@ -711,7 +726,7 @@
     "cosyvoiceMode": {
       "label": "CosyVoice 生成方式",
       "reference": "跟随参考音频（推荐）",
-      "instruct": "按方言指令"
+      "instruct": "跟随朗读指令"
     },
     "dialect": {
       "label": "方言",
@@ -731,6 +746,12 @@
       "ariaLabel": "以人物设定撰写一句台词",
       "failedTitle": "撰写失败",
       "failedDescription": "无法根据此人物设定生成文本。"
+    },
+    "errors": {
+      "noProfileTitle": "未选择声音档案",
+      "noProfileDescription": "请先从上方的卡片中选择一个声音档案。",
+      "failedTitle": "生成失败",
+      "failedDescription": "无法生成音频"
     }
   },
   "main": {

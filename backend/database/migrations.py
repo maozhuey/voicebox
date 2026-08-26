@@ -158,6 +158,10 @@ def _migrate_profiles(engine, inspector, tables: set[str]) -> None:
         _add_column(engine, "profiles", "design_prompt TEXT", "design_prompt")
     if "default_engine" not in columns:
         _add_column(engine, "profiles", "default_engine VARCHAR", "default_engine")
+    if "default_model_size" not in columns:
+        # Nullable keeps existing profiles compatible: engines continue to use
+        # their own runtime default until the user selects a concrete model.
+        _add_column(engine, "profiles", "default_model_size VARCHAR", "default_model_size")
     if "personality" not in columns:
         _add_column(engine, "profiles", "personality TEXT", "personality")
 
@@ -176,6 +180,10 @@ def _migrate_generations(engine, inspector, tables: set[str]) -> None:
     columns = _get_columns(inspector, "generations")
     if "model_size" not in columns:
         _add_column(engine, "generations", "model_size VARCHAR", "model_size")
+    if "cosyvoice_mode" not in columns:
+        _add_column(engine, "generations", "cosyvoice_mode VARCHAR", "cosyvoice_mode")
+    if "dialect" not in columns:
+        _add_column(engine, "generations", "dialect VARCHAR", "dialect")
     if "is_favorited" not in columns:
         _add_column(engine, "generations", "is_favorited BOOLEAN DEFAULT 0", "is_favorited")
     if "source" not in columns:

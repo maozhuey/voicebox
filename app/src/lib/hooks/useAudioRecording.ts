@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { usePlatform } from '@/platform/PlatformContext';
 import { convertToWav } from '@/lib/utils/audio';
+import { toChineseErrorMessage } from '@/lib/utils/errorMessage';
 
 interface UseAudioRecordingOptions {
   maxDurationSeconds?: number;
@@ -32,8 +33,7 @@ export function useAudioRecording({
       // Check if getUserMedia is available
       // In Tauri, navigator.mediaDevices might not be available immediately
       if (typeof navigator === 'undefined') {
-        const errorMsg =
-          'Navigator API is not available. This might be a Tauri configuration issue.';
+        const errorMsg = '浏览器录音接口不可用，可能是桌面客户端配置异常。';
         setError(errorMsg);
         throw new Error(errorMsg);
       }
@@ -51,8 +51,8 @@ export function useAudioRecording({
           });
 
           const errorMsg = platform.metadata.isTauri
-            ? 'Microphone access is not available. Please ensure:\n1. The app has microphone permissions in System Settings (macOS: System Settings > Privacy & Security > Microphone)\n2. You restart the app after granting permissions\n3. You are using Tauri v2 with a webview that supports getUserMedia'
-            : 'Microphone access is not available. Please ensure you are using a secure context (HTTPS or localhost) and that your browser has microphone permissions enabled.';
+            ? '无法访问麦克风。请确认：\n1. 已在系统设置中授予应用麦克风权限（macOS：系统设置 > 隐私与安全性 > 麦克风）\n2. 授权后已重启应用\n3. 当前桌面客户端支持麦克风录音'
+            : '无法访问麦克风。请确认当前页面使用 HTTPS 或 localhost，并已在浏览器中授予麦克风权限。';
           setError(errorMsg);
           throw new Error(errorMsg);
         }
@@ -120,7 +120,7 @@ export function useAudioRecording({
       };
 
       mediaRecorder.onerror = (event) => {
-        setError('Recording error occurred');
+        setError('录音过程中发生错误');
         console.error('MediaRecorder error:', event);
       };
 
@@ -155,10 +155,7 @@ export function useAudioRecording({
         }
       }, 100);
     } catch (err) {
-      const errorMessage =
-        err instanceof Error
-          ? err.message
-          : 'Failed to access microphone. Please check permissions.';
+      const errorMessage = toChineseErrorMessage(err, '无法访问麦克风，请检查权限设置。');
       setError(errorMessage);
       setIsRecording(false);
     }

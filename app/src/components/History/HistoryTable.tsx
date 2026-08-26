@@ -106,14 +106,14 @@ export function HistoryTable() {
     onSuccess: async (data) => {
       await queryClient.invalidateQueries({ queryKey: ['history'] });
       toast({
-        title: 'Cancelling generation',
+        title: '正在取消生成',
         description: data.message,
       });
     },
     onError: (error) => {
       toast({
-        title: 'Cancel failed',
-        description: error instanceof Error ? error.message : 'Could not cancel generation',
+        title: '取消失败',
+        description: error instanceof Error ? error.message : '无法取消生成任务',
         variant: 'destructive',
       });
     },
@@ -220,7 +220,7 @@ export function HistoryTable() {
       {
         onError: (error) => {
           toast({
-            title: 'Failed to download audio',
+            title: '下载音频失败',
             description: error.message,
             variant: 'destructive',
           });
@@ -235,7 +235,7 @@ export function HistoryTable() {
       {
         onError: (error) => {
           toast({
-            title: 'Failed to export generation',
+            title: '导出生成记录失败',
             description: error.message,
             variant: 'destructive',
           });
@@ -264,8 +264,8 @@ export function HistoryTable() {
       queryClient.invalidateQueries({ queryKey: ['history'] });
     } catch (error) {
       toast({
-        title: 'Retry failed',
-        description: error instanceof Error ? error.message : 'Could not retry generation',
+        title: '重试失败',
+        description: error instanceof Error ? error.message : '无法重试生成任务',
         variant: 'destructive',
       });
     }
@@ -278,8 +278,8 @@ export function HistoryTable() {
       queryClient.invalidateQueries({ queryKey: ['history'] });
     } catch (error) {
       toast({
-        title: 'Regenerate failed',
-        description: error instanceof Error ? error.message : 'Could not regenerate',
+        title: '重新生成失败',
+        description: error instanceof Error ? error.message : '无法重新生成',
         variant: 'destructive',
       });
     }
@@ -291,8 +291,8 @@ export function HistoryTable() {
       queryClient.invalidateQueries({ queryKey: ['history'] });
     } catch (error) {
       toast({
-        title: 'Failed to update favorite',
-        description: error instanceof Error ? error.message : 'Unknown error',
+        title: '更新收藏状态失败',
+        description: error instanceof Error ? error.message : '未知错误',
         variant: 'destructive',
       });
     }
@@ -336,11 +336,11 @@ export function HistoryTable() {
       }
 
       setEffectsDialogOpen(false);
-      toast({ title: 'Effects applied', description: 'A new version has been created.' });
+      toast({ title: '效果已应用', description: '已创建新版本。' });
     } catch (error) {
       toast({
-        title: 'Failed to apply effects',
-        description: error instanceof Error ? error.message : 'Unknown error',
+        title: '应用效果失败',
+        description: error instanceof Error ? error.message : '未知错误',
         variant: 'destructive',
       });
     } finally {
@@ -354,8 +354,8 @@ export function HistoryTable() {
       queryClient.invalidateQueries({ queryKey: ['history'] });
     } catch (error) {
       toast({
-        title: 'Failed to switch version',
-        description: error instanceof Error ? error.message : 'Unknown error',
+        title: '切换版本失败',
+        description: error instanceof Error ? error.message : '未知错误',
         variant: 'destructive',
       });
     }
@@ -381,13 +381,13 @@ export function HistoryTable() {
             fileInputRef.current.value = '';
           }
           toast({
-            title: 'Generation imported',
-            description: data.message || 'Generation imported successfully',
+            title: '生成记录已导入',
+            description: data.message || '生成记录导入成功',
           });
         },
         onError: (error) => {
           toast({
-            title: 'Failed to import generation',
+            title: '导入生成记录失败',
             description: error.message,
             variant: 'destructive',
           });
@@ -413,15 +413,15 @@ export function HistoryTable() {
       onSuccess: (data) => {
         setClearFailedDialogOpen(false);
         toast({
-          title: 'Cleared failed generations',
-          description: `${data.deleted} failed ${data.deleted === 1 ? 'generation' : 'generations'} removed.`,
+          title: '已清除失败记录',
+          description: `已移除 ${data.deleted} 条失败的生成记录。`,
         });
       },
       onError: (error) => {
         setClearFailedDialogOpen(false);
         toast({
-          title: 'Failed to clear',
-          description: error instanceof Error ? error.message : 'Unknown error',
+          title: '清除失败',
+          description: error instanceof Error ? error.message : '未知错误',
           variant: 'destructive',
         });
       },
@@ -438,9 +438,7 @@ export function HistoryTable() {
         <>
           {failedCount > 0 && (
             <div className="flex items-center justify-between px-1 pb-2">
-              <span className="text-xs text-muted-foreground">
-                {failedCount} failed {failedCount === 1 ? 'generation' : 'generations'}
-              </span>
+              <span className="text-xs text-muted-foreground">{failedCount} 条生成失败</span>
               <Button
                 variant="ghost"
                 size="sm"
@@ -449,7 +447,7 @@ export function HistoryTable() {
                 disabled={clearFailed.isPending}
               >
                 <Trash2 className="h-3 w-3 mr-1.5" />
-                {clearFailed.isPending ? 'Clearing...' : 'Clear failed'}
+                {clearFailed.isPending ? '正在清除…' : '清除失败记录'}
               </Button>
             </div>
           )}
@@ -492,12 +490,12 @@ export function HistoryTable() {
                     )}
                     aria-label={
                       isGenerating
-                        ? `Generating speech for ${gen.profile_name}...`
+                        ? `正在使用 ${gen.profile_name} 生成语音…`
                         : isFailed
-                          ? `Generation failed for ${gen.profile_name}`
+                          ? `${gen.profile_name} 的语音生成失败`
                           : isCurrentlyPlaying
-                            ? `Sample from ${gen.profile_name}, ${formatDuration(gen.duration ?? 0)}, ${formatDate(gen.created_at)}. Playing. Press Enter to restart.`
-                            : `Sample from ${gen.profile_name}, ${formatDuration(gen.duration ?? 0)}, ${formatDate(gen.created_at)}. Press Enter to play.`
+                            ? `${gen.profile_name} 的音频，时长 ${formatDuration(gen.duration ?? 0)}，创建于 ${formatDate(gen.created_at)}。正在播放，按回车键重新播放。`
+                            : `${gen.profile_name} 的音频，时长 ${formatDuration(gen.duration ?? 0)}，创建于 ${formatDate(gen.created_at)}。按回车键播放。`
                     }
                     onMouseDown={(e) => {
                       if (!isPlayable) return;
@@ -535,7 +533,7 @@ export function HistoryTable() {
                           {formatEngineName(gen.engine, gen.model_size)}
                         </span>
                         {isFailed ? (
-                          <span className="text-xs text-destructive">Failed</span>
+                          <span className="text-xs text-destructive">失败</span>
                         ) : !isGenerating ? (
                           <span className="text-xs text-muted-foreground">
                             {formatDuration(gen.duration ?? 0)}
@@ -566,7 +564,7 @@ export function HistoryTable() {
                         value={gen.text}
                         className="flex-1 resize-none text-sm text-muted-foreground select-text"
                         readOnly
-                        aria-label={`Transcript for sample from ${gen.profile_name}, ${formatDuration(gen.duration ?? 0)}`}
+                        aria-label={`${gen.profile_name} 音频的文本，时长 ${formatDuration(gen.duration ?? 0)}`}
                       />
                     </div>
 
@@ -583,7 +581,7 @@ export function HistoryTable() {
                           'h-6 w-6 text-muted-foreground/50 hover:bg-muted-foreground/20 hover:text-muted-foreground',
                           gen.is_favorited && 'text-accent hover:text-accent',
                         )}
-                        aria-label={gen.is_favorited ? 'Unfavorite' : 'Favorite'}
+                        aria-label={gen.is_favorited ? '取消收藏' : '收藏'}
                         onClick={() => handleToggleFavorite(gen.id)}
                       >
                         <Star
@@ -599,7 +597,7 @@ export function HistoryTable() {
                             'h-6 w-6 text-muted-foreground/50 hover:bg-muted-foreground/20 hover:text-muted-foreground',
                             isVersionsExpanded && 'text-accent hover:text-accent',
                           )}
-                          aria-label="Toggle versions"
+                          aria-label="展开或收起版本"
                           onClick={() => setExpandedVersionsId(isVersionsExpanded ? null : gen.id)}
                         >
                           <AudioLines className="h-2 w-2" />
@@ -612,7 +610,7 @@ export function HistoryTable() {
                             variant="ghost"
                             size="icon"
                             className="h-6 w-6 text-muted-foreground/50 hover:bg-muted-foreground/20 hover:text-muted-foreground"
-                            aria-label="Retry generation"
+                            aria-label="重试生成"
                             onClick={() => handleRetry(gen.id)}
                           >
                             <RotateCcw className="h-2 w-2" />
@@ -621,7 +619,7 @@ export function HistoryTable() {
                             variant="ghost"
                             size="icon"
                             className="h-6 w-6 text-muted-foreground/50 hover:bg-muted-foreground/20 hover:text-muted-foreground"
-                            aria-label="Delete generation"
+                            aria-label="删除生成记录"
                             disabled={deleteGeneration.isPending}
                             onClick={() => handleDeleteClick(gen.id, gen.profile_name)}
                           >
@@ -633,7 +631,7 @@ export function HistoryTable() {
                           variant="ghost"
                           size="icon"
                           className="h-6 w-6 text-muted-foreground/50 hover:bg-muted-foreground/20 hover:text-muted-foreground"
-                          aria-label="Cancel generation"
+                          aria-label="取消生成"
                           disabled={isCancelling}
                           onClick={() => cancelGeneration.mutate(gen.id)}
                         >

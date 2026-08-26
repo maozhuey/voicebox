@@ -41,9 +41,11 @@ QWEN_CUSTOM_VOICES = [
     ("Dylan", "Dylan", "male", "zh", "Youthful Beijing male voice with a clear, natural timbre"),
     ("Eric", "Eric", "male", "zh", "Lively Chengdu male voice with a slightly husky brightness"),
     ("Ryan", "Ryan", "male", "en", "Dynamic male voice with strong rhythmic drive"),
-    ("Aiden", "Aiden", "male", "en", "Sunny American male voice with a clear midrange"),
-    ("Ono_Anna", "Ono Anna", "female", "ja", "Playful Japanese female voice with a light, nimble timbre"),
-    ("Sohee", "Sohee", "female", "ko", "Warm Korean female voice with rich emotion"),
+    # 业务规则：产品将末三个内置声音统一作为中文声音提供。模型仍使用各自的  # noqa: RUF003
+    # speaker 音色，但声音选择页、档案默认语言和试听文案都会按中文处理。  # noqa: RUF003
+    ("Aiden", "Aiden", "male", "zh", "Sunny American male voice with a clear midrange"),
+    ("Ono_Anna", "Ono Anna", "female", "zh", "Playful Japanese female voice with a light, nimble timbre"),
+    ("Sohee", "Sohee", "female", "zh", "Warm Korean female voice with rich emotion"),
 ]
 
 QWEN_CV_DEFAULT_SPEAKER = "Ryan"

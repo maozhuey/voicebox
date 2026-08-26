@@ -27,8 +27,8 @@ export function CloudSection() {
     if (connected && polling) {
       setPolling(false);
       toast({
-        title: 'Connected to Voicebox Cloud',
-        description: `Linked as ${status?.device_name ?? 'this device'}.`,
+        title: '已连接 Voicebox 云服务',
+        description: `已关联设备：${status?.device_name ?? '当前设备'}。`,
       });
     }
   }, [connected, polling, status?.device_name, toast]);
@@ -41,8 +41,8 @@ export function CloudSection() {
     const timeoutId = window.setTimeout(() => {
       setPolling(false);
       toast({
-        title: 'Sign-in timed out',
-        description: 'The browser sign-in was not completed. Try again.',
+        title: '登录超时',
+        description: '浏览器登录尚未完成，请重试。',
         variant: 'destructive',
       });
     }, 120_000);
@@ -54,13 +54,13 @@ export function CloudSection() {
     onSuccess: () => {
       setPolling(true);
       toast({
-        title: 'Continue in your browser',
-        description: 'Authorize this device, then return here.',
+        title: '请在浏览器中继续',
+        description: '授权此设备后返回本页面。',
       });
     },
     onError: (error: Error) =>
       toast({
-        title: 'Could not start sign-in',
+        title: '无法开始登录',
         description: error.message,
         variant: 'destructive',
       }),
@@ -71,30 +71,26 @@ export function CloudSection() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['cloud-status'] });
       toast({
-        title: 'Disconnected',
-        description:
-          'This device is no longer linked. The key stays valid until revoked in your account.',
+        title: '已断开连接',
+        description: '当前设备已取消关联；密钥在账户中撤销前仍然有效。',
       });
     },
     onError: (error: Error) =>
-      toast({ title: 'Could not disconnect', description: error.message, variant: 'destructive' }),
+      toast({ title: '无法断开连接', description: error.message, variant: 'destructive' }),
   });
 
   const busy = startLogin.isPending || polling;
 
   return (
-    <SettingSection
-      title="Voicebox Cloud"
-      description="End-to-end encrypted backup & sync across your devices."
-    >
+    <SettingSection title="Voicebox Cloud" description="在您的设备之间进行端到端加密备份与同步。">
       <SettingRow
-        title={connected ? 'Connected' : 'Account'}
+        title={connected ? '已连接' : '账户'}
         description={
           connected
-            ? `Linked as ${status?.device_name ?? 'this device'}${
+            ? `已关联为 ${status?.device_name ?? '当前设备'}${
                 status?.key_prefix ? ` · ${status.key_prefix}…` : ''
               }`
-            : 'Log in to back up and sync your captures and generations.'
+            : '登录后可备份并同步捕获内容和生成记录。'
         }
         action={
           connected ? (
@@ -107,10 +103,10 @@ export function CloudSection() {
               {disconnect.isPending ? (
                 <>
                   <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-                  Disconnecting…
+                  正在断开…
                 </>
               ) : (
-                'Disconnect'
+                '断开连接'
               )}
             </Button>
           ) : (
@@ -118,12 +114,12 @@ export function CloudSection() {
               {busy ? (
                 <>
                   <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-                  {polling ? 'Waiting for browser…' : 'Opening…'}
+                  {polling ? '正在等待浏览器授权…' : '正在打开…'}
                 </>
               ) : (
                 <>
                   <Cloud className="h-3.5 w-3.5 mr-1.5" />
-                  Log in with browser
+                  使用浏览器登录
                 </>
               )}
             </Button>
@@ -132,17 +128,14 @@ export function CloudSection() {
       />
 
       {connected && (
-        <SettingRow
-          title="Manage"
-          description="Revoke this device, add API keys, or manage billing from your account."
-        >
+        <SettingRow title="管理" description="可在账户中撤销此设备、添加 API 密钥或管理账单。">
           <a
             className="text-sm text-accent hover:underline"
             href={status?.dashboard_url ?? 'https://voicebox.sh/account'}
             rel="noopener noreferrer"
             target="_blank"
           >
-            Open account dashboard ↗
+            打开账户管理页面 ↗
           </a>
         </SettingRow>
       )}

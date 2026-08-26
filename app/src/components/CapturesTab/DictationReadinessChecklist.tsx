@@ -18,6 +18,7 @@ import { apiClient } from '@/lib/api/client';
 import type { ActiveDownloadTask } from '@/lib/api/types';
 import type { DictationReadiness, ReadinessGate } from '@/lib/hooks/useDictationReadiness';
 import { cn } from '@/lib/utils/cn';
+import { toChineseErrorMessage } from '@/lib/utils/errorMessage';
 
 interface RowProps {
   icon: React.ReactNode;
@@ -177,17 +178,18 @@ export function DictationReadinessChecklist({
     const downloading = !ready && task?.status === 'downloading';
     const failed = !ready && task?.status === 'error';
     const pct = progressPercent(task);
+    const downloadError = toChineseErrorMessage(task?.error, '模型下载失败');
     return (
       <div className="space-y-2">
         {failed ? (
           <p
             className="flex items-start gap-1.5 text-xs leading-relaxed text-destructive break-words"
-            title={task.error}
+            title={downloadError}
           >
             <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             <span>
               {t('captures.readiness.downloadFailed')}
-              {task.error ? `：${task.error}` : null}
+              {task.error ? `：${downloadError}` : null}
             </span>
           </p>
         ) : null}
@@ -228,9 +230,7 @@ export function DictationReadinessChecklist({
           <h2 className="text-base font-semibold text-foreground">
             {t('captures.readiness.title')}
           </h2>
-          <p className="text-xs text-muted-foreground">
-            {t('captures.readiness.subheading')}
-          </p>
+          <p className="text-xs text-muted-foreground">{t('captures.readiness.subheading')}</p>
         </div>
       )}
 
@@ -311,5 +311,4 @@ export function DictationReadinessChecklist({
   );
 }
 
-const isMacOS =
-  typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.userAgent);
+const isMacOS = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.userAgent);

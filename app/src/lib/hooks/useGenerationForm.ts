@@ -1,6 +1,7 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
+import { useTranslation } from 'react-i18next';
 import * as z from 'zod';
 import { useToast } from '@/components/ui/use-toast';
 import { apiClient } from '@/lib/api/client';
@@ -44,6 +45,7 @@ interface UseGenerationFormOptions {
 }
 
 export function useGenerationForm(options: UseGenerationFormOptions = {}) {
+  const { t } = useTranslation();
   const { toast } = useToast();
   const generation = useGeneration();
   const addPendingGeneration = useGenerationStore((state) => state.addPendingGeneration);
@@ -92,8 +94,8 @@ export function useGenerationForm(options: UseGenerationFormOptions = {}) {
   ): Promise<void> {
     if (!selectedProfileId) {
       toast({
-        title: 'No profile selected',
-        description: 'Please select a voice profile from the cards above.',
+        title: t('generation.errors.noProfileTitle'),
+        description: t('generation.errors.noProfileDescription'),
         variant: 'destructive',
       });
       return;
@@ -168,10 +170,13 @@ export function useGenerationForm(options: UseGenerationFormOptions = {}) {
       // Qwen CustomVoice turn it into model-level delivery-style control.
       const supportsInstruct = engine === 'qwen_custom_voice' || engine === 'cosyvoice';
       const effectsChain = options.getEffectsChain?.();
+      // 业务规则：正文和朗读指令是两个完全独立的输入通道。人物设定只允许
+      // 预填 instruct，提交时绝不能用 instruct 替换用户输入的正文。
+      const scriptText = data.text;
       // This now returns immediately with status="generating"
       const result = await generation.mutateAsync({
         profile_id: selectedProfileId,
-        text: data.text,
+        text: scriptText,
         language: data.language,
         seed: data.seed,
         model_size: hasModelSizes ? data.modelSize : undefined,
@@ -179,16 +184,13 @@ export function useGenerationForm(options: UseGenerationFormOptions = {}) {
         // 业务规则：参考音频跟随模式不能携带朗读指令，否则 CosyVoice 会从
         // zero-shot 切换到 instruct2，削弱参考录音里的方言和自然语气。
         instruct:
-          supportsInstruct &&
-          !(engine === 'cosyvoice' && data.cosyvoiceMode === 'reference')
+          supportsInstruct && !(engine === 'cosyvoice' && data.cosyvoiceMode === 'reference')
             ? data.instruct || undefined
             : undefined,
         cosyvoice_mode: engine === 'cosyvoice' ? data.cosyvoiceMode : undefined,
         // 方言下拉项只属于 instruct2 模式；参考跟随模式的口音由录音决定。
         dialect:
-          engine === 'cosyvoice' &&
-          data.language === 'zh' &&
-          data.cosyvoiceMode === 'instruct'
+          engine === 'cosyvoice' && data.language === 'zh' && data.cosyvoiceMode === 'instruct'
             ? data.dialect
             : undefined,
         max_chunk_chars: maxChunkChars,
@@ -218,8 +220,9 @@ export function useGenerationForm(options: UseGenerationFormOptions = {}) {
       options.onSuccess?.(result.id);
     } catch (error) {
       toast({
-        title: 'Generation failed',
-        description: error instanceof Error ? error.message : 'Failed to generate audio',
+        title: t('generation.errors.failedTitle'),
+        description:
+          error instanceof Error ? error.message : t('generation.errors.failedDescription'),
         variant: 'destructive',
       });
     } finally {

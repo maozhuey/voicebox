@@ -5,6 +5,7 @@ import { ToastAction } from '@/components/ui/toast';
 import { useToast } from '@/components/ui/use-toast';
 import { usePlatform } from '@/platform/PlatformContext';
 import type { UpdateStatus } from '@/platform/types';
+import { toChineseErrorMessage } from '@/lib/utils/errorMessage';
 
 // Re-export UpdateStatus for backwards compatibility
 export type { UpdateStatus };
@@ -92,12 +93,12 @@ export function useAutoUpdater(options: boolean | UseAutoUpdaterOptions = false)
     };
 
     const toastResult = toast({
-      title: 'Update Available',
-      description: `Version ${status.version} is ready to download.`,
+      title: '发现新版本',
+      description: `版本 ${status.version} 已可下载。`,
       duration: Infinity,
       action: (
-        <ToastAction altText="Update now" onClick={handleUpdateNow}>
-          Update Now
+        <ToastAction altText="立即更新" onClick={handleUpdateNow}>
+          立即更新
         </ToastAction>
       ),
     });
@@ -133,12 +134,12 @@ export function useAutoUpdater(options: boolean | UseAutoUpdaterOptions = false)
       title: (
         <div className="flex items-center gap-2">
           <Download className="h-4 w-4 animate-pulse" />
-          <span>Downloading Update</span>
+          <span>正在下载更新</span>
         </div>
       ),
       description: (
         <div className="space-y-2">
-          <div className="text-sm">Version {status.version}</div>
+          <div className="text-sm">版本 {status.version}</div>
           {progressPercent > 0 && (
             <>
               <Progress value={progressPercent} className="h-2" />
@@ -169,13 +170,13 @@ export function useAutoUpdater(options: boolean | UseAutoUpdaterOptions = false)
     };
 
     toastUpdateRef.current({
-      title: 'Update Ready',
-      description: `Version ${status.version} has been downloaded and is ready to install.`,
+      title: '更新已就绪',
+      description: `版本 ${status.version} 已下载，可以安装。`,
       duration: Infinity,
       action: (
-        <ToastAction altText="Restart now" onClick={handleRestartNow}>
+        <ToastAction altText="立即重启" onClick={handleRestartNow}>
           <RefreshCw className="h-3 w-3 mr-1" />
-          Restart Now
+          立即重启
         </ToastAction>
       ),
     });
@@ -188,8 +189,8 @@ export function useAutoUpdater(options: boolean | UseAutoUpdaterOptions = false)
     }
 
     toastUpdateRef.current({
-      title: 'Update Failed',
-      description: status.error,
+      title: '更新失败',
+      description: toChineseErrorMessage(status.error, '更新失败，请稍后重试。'),
       variant: 'destructive',
       duration: 5000,
     });

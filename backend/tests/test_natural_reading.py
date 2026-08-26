@@ -9,10 +9,10 @@ import pytest
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import sessionmaker
 
-from backend.database import Base, Generation as DBGeneration, VoiceProfile
+from backend.database import Base, Generation as DBGeneration, StoryItem, VoiceProfile
 from backend.database.migrations import run_migrations
 from backend.models import GenerationRequest, GenerationSettingsUpdate
-from backend.services import history
+from backend.services import history, stories
 from backend.utils.chunked_tts import (
     generate_chunked,
     merge_short_prosody_chunks,
@@ -261,6 +261,12 @@ def test_migration_adds_natural_reading_without_enabling_existing_data(tmp_path)
     assert "progress_total" in {
         column["name"] for column in inspect(engine).get_columns("generations")
     }
+    assert "cosyvoice_mode" in {
+        column["name"] for column in inspect(engine).get_columns("generations")
+    }
+    assert "dialect" in {
+        column["name"] for column in inspect(engine).get_columns("generations")
+    }
     assert "natural_reading" in {
         column["name"] for column in inspect(engine).get_columns("generation_settings")
     }
@@ -298,6 +304,52 @@ async def test_history_remembers_natural_reading_for_retry(tmp_path):
     stored = session.query(DBGeneration).filter_by(id=response.id).one()
     assert response.natural_reading is True
     assert stored.natural_reading is True
+    session.close()
+
+
+@pytest.mark.asyncio
+async def test_history_remembers_cosyvoice_configuration_for_story_cards(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'cosyvoice-history.db'}")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine)()
+    session.add(VoiceProfile(id="voice-id", name="测试声音", language="zh"))
+    session.commit()
+
+    response = await history.create_generation(
+        profile_id="voice-id",
+        text="请完整朗读这段文案。",
+        language="zh",
+        audio_path="",
+        duration=0,
+        seed=None,
+        db=session,
+        engine="cosyvoice",
+        model_size="rl",
+        cosyvoice_mode="instruct",
+        dialect="henan",
+        natural_reading=True,
+    )
+
+    stored = session.query(DBGeneration).filter_by(id=response.id).one()
+    assert response.cosyvoice_mode == "instruct"
+    assert response.dialect == "henan"
+    assert stored.cosyvoice_mode == "instruct"
+    assert stored.dialect == "henan"
+
+    story_item = StoryItem(
+        id="story-item-id",
+        story_id="story-id",
+        generation_id=response.id,
+        start_time_ms=0,
+    )
+    session.add(story_item)
+    session.commit()
+
+    detail = stories._build_item_detail(story_item, stored, "测试声音", session)
+    assert detail.model_size == "rl"
+    assert detail.cosyvoice_mode == "instruct"
+    assert detail.dialect == "henan"
+    assert detail.natural_reading is True
     session.close()
 
 

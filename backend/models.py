@@ -19,14 +19,17 @@ class VoiceProfileCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     description: Optional[str] = Field(None, max_length=500)
     language: str = Field(
-        default="en", pattern="^(zh|en|ja|ko|de|fr|ru|pt|es|it|he|ar|da|el|fi|hi|ms|nl|no|pl|sv|sw|tr)$"
+        default="zh", pattern="^(zh|en|ja|ko|de|fr|ru|pt|es|it|he|ar|da|el|fi|hi|ms|nl|no|pl|sv|sw|tr)$"
     )
     voice_type: Optional[str] = Field(default="cloned", pattern="^(cloned|preset|designed)$")
     preset_engine: Optional[str] = Field(None, max_length=50)
     preset_voice_id: Optional[str] = Field(None, max_length=100)
     design_prompt: Optional[str] = Field(None, max_length=2000)
     default_engine: Optional[str] = Field(None, max_length=50)
-    personality: Optional[str] = Field(None, max_length=2000)
+    default_model_size: Optional[str] = Field(
+        None, pattern="^(1\\.7B|0\\.6B|1B|3B|rl|base)$"
+    )
+    personality: Optional[str] = Field(None, max_length=500)
 
 
 class VoiceProfileResponse(BaseModel):
@@ -43,6 +46,7 @@ class VoiceProfileResponse(BaseModel):
     preset_voice_id: Optional[str] = None
     design_prompt: Optional[str] = None
     default_engine: Optional[str] = None
+    default_model_size: Optional[str] = None
     personality: Optional[str] = None
     generation_count: int = 0
     sample_count: int = 0
@@ -51,6 +55,12 @@ class VoiceProfileResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class PresetVoicePreviewRequest(BaseModel):
+    """Request a short, non-persistent preview for a built-in voice."""
+
+    voice_id: str = Field(..., min_length=1, max_length=100)
 
 
 class ProfileSampleCreate(BaseModel):
@@ -84,7 +94,7 @@ class GenerationRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=50000)
     language: str = Field(default="en", pattern="^(zh|en|ja|ko|de|fr|ru|pt|es|it|he|ar|da|el|fi|hi|ms|nl|no|pl|sv|sw|tr)$")
     seed: Optional[int] = Field(None, ge=0)
-    model_size: Optional[str] = Field(default="1.7B", pattern="^(1\\.7B|0\\.6B|1B|3B|rl|base)$")
+    model_size: Optional[str] = Field(default=None, pattern="^(1\\.7B|0\\.6B|1B|3B|rl|base)$")
     instruct: Optional[str] = Field(None, max_length=500)
     cosyvoice_mode: Literal["reference", "instruct"] = Field(
         default="reference",
@@ -103,7 +113,7 @@ class GenerationRequest(BaseModel):
     engine: Optional[str] = Field(default="qwen", pattern="^(qwen|qwen_custom_voice|luxtts|chatterbox|chatterbox_turbo|tada|kokoro|cosyvoice)$")
     personality: bool = Field(
         default=False,
-        description="When true and the profile has a task setting, synthesize the original input without rewriting it.",
+        description="When true and the profile has a character setting, synthesize the original input without rewriting it.",
     )
     max_chunk_chars: int = Field(
         default=800, ge=100, le=5000, description="Max characters per chunk for long text splitting"
@@ -134,6 +144,8 @@ class GenerationResponse(BaseModel):
     instruct: Optional[str] = None
     engine: Optional[str] = "qwen"
     model_size: Optional[str] = None
+    cosyvoice_mode: Optional[Literal["reference", "instruct"]] = None
+    dialect: Optional[Literal["mandarin", "henan", "sichuan"]] = None
     natural_reading: bool = False
     status: str = "completed"
     progress_current: Optional[int] = None
@@ -172,6 +184,8 @@ class HistoryResponse(BaseModel):
     instruct: Optional[str] = None
     engine: Optional[str] = "qwen"
     model_size: Optional[str] = None
+    cosyvoice_mode: Optional[Literal["reference", "instruct"]] = None
+    dialect: Optional[Literal["mandarin", "henan", "sichuan"]] = None
     natural_reading: bool = False
     status: str = "completed"
     progress_current: Optional[int] = None
@@ -633,6 +647,10 @@ class StoryItemDetail(BaseModel):
     seed: Optional[int]
     instruct: Optional[str]
     engine: Optional[str] = None
+    model_size: Optional[str] = None
+    cosyvoice_mode: Optional[Literal["reference", "instruct"]] = None
+    dialect: Optional[Literal["mandarin", "henan", "sichuan"]] = None
+    natural_reading: bool = False
     volume: float = 1.0
     generation_created_at: datetime
     # Versions available for this generation

@@ -106,6 +106,26 @@ async def list_preset_voices(engine: str):
         }
     return {"engine": engine, "voices": []}
 
+
+@router.post("/profiles/presets/{engine}/preview")
+async def preview_preset_voice(engine: str, data: models.PresetVoicePreviewRequest):
+    """Return a short WAV preview for a built-in voice without persisting it."""
+    try:
+        wav_bytes = await profiles.generate_preset_voice_preview(engine, data.voice_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except Exception as e:
+        # 预览不会持久化任何数据；异常需要立即返回，避免前端卡片无限显示加载状态。
+        logger.exception("Failed to generate preset voice preview for %s/%s", engine, data.voice_id)
+        raise HTTPException(status_code=500, detail=f"Failed to generate voice preview: {e}") from e
+
+    return StreamingResponse(
+        io.BytesIO(wav_bytes),
+        media_type="audio/wav",
+        headers={"Content-Disposition": 'inline; filename="preset-voice-preview.wav"'},
+    )
+
+
 @router.get("/profiles/{profile_id}", response_model=models.VoiceProfileResponse)
 async def get_profile(
     profile_id: str,

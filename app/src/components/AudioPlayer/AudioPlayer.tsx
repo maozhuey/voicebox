@@ -405,7 +405,7 @@ export function AudioPlayer() {
     // Check if audio is loaded
     if (duration === 0 && !isLoading) {
       debug.error('Audio not loaded yet');
-      setError('Audio not loaded. Please wait...');
+      setError('音频尚未加载，请稍候…');
       return;
     }
 
@@ -532,10 +532,8 @@ export function AudioPlayer() {
             onClick={handlePlayPause}
             disabled={isLoading || duration === 0}
             className={`shrink-0 -mt-2 ${isPlaying ? 'bg-accent text-accent-foreground' : ''}`}
-            title={duration === 0 && !isLoading ? 'Audio not loaded' : ''}
-            aria-label={
-              duration === 0 && !isLoading ? 'Audio not loaded' : isPlaying ? 'Pause' : 'Play'
-            }
+            title={duration === 0 && !isLoading ? '音频尚未加载' : ''}
+            aria-label={duration === 0 && !isLoading ? '音频尚未加载' : isPlaying ? '暂停' : '播放'}
           >
             {isPlaying ? (
               <Pause className="h-5 w-5 fill-current" />
@@ -553,7 +551,7 @@ export function AudioPlayer() {
               max={100}
               step={0.1}
               className="w-full"
-              aria-label="Playback position"
+              aria-label="播放位置"
               aria-valuetext={`${formatAudioDuration(currentTime)} of ${formatAudioDuration(duration)}`}
             />
 
@@ -573,8 +571,8 @@ export function AudioPlayer() {
             size="icon"
             onClick={toggleLoop}
             className={isLooping ? 'bg-accent text-accent-foreground' : ''}
-            title="Toggle loop"
-            aria-label={isLooping ? 'Stop looping' : 'Loop'}
+            title="切换循环播放"
+            aria-label={isLooping ? '停止循环播放' : '循环播放'}
           >
             <Repeat className="h-4 w-4" />
           </Button>
@@ -583,14 +581,14 @@ export function AudioPlayer() {
           <div
             className="flex items-center gap-2 shrink-0 w-[120px]"
             role="group"
-            aria-label="Volume"
+            aria-label="音量"
           >
             <Button
               variant="ghost"
               size="icon"
               onClick={() => setVolume(volume > 0 ? 0 : 1)}
               className="h-8 w-8"
-              aria-label={volume > 0 ? 'Mute' : 'Unmute'}
+              aria-label={volume > 0 ? '静音' : '取消静音'}
             >
               {volume > 0 ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
             </Button>
@@ -614,8 +612,8 @@ export function AudioPlayer() {
             size="icon"
             onClick={handleClose}
             className="shrink-0"
-            title="Close player"
-            aria-label="Close player"
+            title="关闭播放器"
+            aria-label="关闭播放器"
           >
             <X className="h-5 w-5" />
           </Button>

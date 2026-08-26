@@ -103,6 +103,8 @@ export function StoryList() {
           setCreateDialogOpen(false);
           setNewStoryName('');
           setNewStoryDescription('');
+          // 业务规则：故事创建成功后只通过全局 Toast 反馈，不在内容区保留
+          // 成功提示卡片，避免遮挡新故事的编辑区域。
           toast({
             title: t('stories.toast.created'),
             description: t('stories.toast.createdDescription', { name: story.name }),

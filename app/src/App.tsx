@@ -11,6 +11,7 @@ import type { HealthResponse } from '@/lib/api/types';
 import { useChordSync } from '@/lib/hooks/useChordSync';
 import { TOP_SAFE_AREA_PADDING } from '@/lib/constants/ui';
 import { cn } from '@/lib/utils/cn';
+import { toChineseErrorMessage } from '@/lib/utils/errorMessage';
 import { usePlatform } from '@/platform/PlatformContext';
 import { router } from '@/router';
 import { useLogStore } from '@/stores/logStore';
@@ -53,26 +54,26 @@ function isPortInUseError(error: unknown): boolean {
 }
 
 const LOADING_MESSAGES = [
-  'Warming up tensors...',
-  'Calibrating synthesizer engine...',
-  'Initializing voice models...',
-  'Loading neural networks...',
-  'Preparing audio pipelines...',
-  'Optimizing waveform generators...',
-  'Tuning frequency analyzers...',
-  'Building voice embeddings...',
-  'Configuring text-to-speech cores...',
-  'Syncing audio buffers...',
-  'Establishing model connections...',
-  'Preprocessing training data...',
-  'Validating voice samples...',
-  'Compiling inference engines...',
-  'Mapping phoneme sequences...',
-  'Aligning prosody parameters...',
-  'Activating speech synthesis...',
-  'Fine-tuning acoustic models...',
-  'Preparing voice cloning matrices...',
-  'Initializing Qwen TTS framework...',
+  '正在预热张量…',
+  '正在校准语音合成引擎…',
+  '正在初始化声音模型…',
+  '正在加载神经网络…',
+  '正在准备音频处理流程…',
+  '正在优化波形生成器…',
+  '正在调节频率分析器…',
+  '正在构建声音特征…',
+  '正在配置文本转语音核心…',
+  '正在同步音频缓冲区…',
+  '正在连接模型…',
+  '正在预处理训练数据…',
+  '正在验证声音样本…',
+  '正在编译推理引擎…',
+  '正在映射音素序列…',
+  '正在对齐韵律参数…',
+  '正在启动语音合成…',
+  '正在微调声学模型…',
+  '正在准备声音克隆参数…',
+  '正在初始化 Qwen TTS 框架…',
 ];
 
 function App() {
@@ -190,7 +191,7 @@ function MainApp() {
         if (!isPortInUseError(error)) {
           const msg = error instanceof Error ? error.message : String(error);
           console.error('Real startup failure — not polling:', msg);
-          setStartupError(msg);
+          setStartupError(toChineseErrorMessage(error, '服务器启动失败，请检查本地服务配置。'));
           return;
         }
 
@@ -218,10 +219,7 @@ function MainApp() {
         setTimeout(() => {
           clearInterval(pollInterval);
           serverStartingRef.current = false;
-          setStartupError(
-            'Could not connect to a Voicebox server within 2 minutes. ' +
-              'Please check that the server is running and try again.',
-          );
+          setStartupError('两分钟内无法连接 Voicebox 服务器。请确认服务器正在运行，然后重试。');
         }, 120_000);
       });
 
@@ -271,7 +269,7 @@ function MainApp() {
           </div>
           {startupError ? (
             <div className="animate-fade-in-delayed max-w-md mx-auto space-y-3">
-              <p className="text-lg font-medium text-destructive">Server startup failed</p>
+              <p className="text-lg font-medium text-destructive">服务器启动失败</p>
               <p className="text-sm text-muted-foreground">{startupError}</p>
               <button
                 type="button"
@@ -283,7 +281,7 @@ function MainApp() {
                   window.location.reload();
                 }}
               >
-                Retry
+                重试
               </button>
             </div>
           ) : (

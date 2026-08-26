@@ -272,7 +272,7 @@
       "defaultEffectsHint": "Effets appliqués automatiquement à toutes les nouvelles générations avec cette voix.",
       "personalityLabel": "Personnalité",
       "personalityPlaceholder": "ex. « un pirate grincheux qui ne parle qu'en métaphores maritimes »",
-      "personalityHint": "Utilisé par Composer pour générer de nouvelles répliques selon le personnage, ses habitudes d'expression et les exigences de contenu. Ne modifie pas la voix et ne contrôle pas automatiquement l'interprétation. Laissez vide pour masquer Composer."
+      "personalityHint": "Utilisé par Composer pour générer de nouvelles répliques. Quand la lecture naturelle améliorée est activée, les modèles compatibles préremplissent aussi les instructions d'interprétation avec ce contenu, modifiable pour chaque tâche. Ne change pas le timbre ; laissez vide pour ne rien préremplir et masquer Composer."
     },
     "avatar": {
       "alt": "Aperçu de l'avatar"

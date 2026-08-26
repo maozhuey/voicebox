@@ -10,9 +10,13 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from .. import config, models
-from ..services import history, profiles, tts
 from ..database import Generation as DBGeneration, VoiceProfile as DBVoiceProfile, get_db
+from ..services import history, profiles, tts
 from ..services.generation import run_generation
+from ..services.instruction_summary import (
+    sanitize_cosyvoice_style_summary,
+    summarize_cosyvoice_style_instruction,
+)
 from ..services.task_queue import cancel_generation as cancel_generation_job, enqueue_generation
 from ..utils.audio import load_audio
 from ..utils.tasks import get_task_manager
@@ -28,6 +32,12 @@ DIALECT_INSTRUCTIONS = {
     "mandarin": "请用普通话表达。",
     "henan": "请用河南话表达。",
     "sichuan": "请用四川话表达。",
+}
+ENGINE_DEFAULT_MODEL_SIZES = {
+    "qwen": "1.7B",
+    "qwen_custom_voice": "1.7B",
+    "tada": "1B",
+    "cosyvoice": "rl",
 }
 
 
@@ -58,16 +68,60 @@ def _resolve_generation_engine(data: models.GenerationRequest, profile) -> str:
     return data.engine or getattr(profile, "default_engine", None) or getattr(profile, "preset_engine", None) or "qwen"
 
 
-def prepare_generation_content(
+def _resolve_generation_model_size(
+    data: models.GenerationRequest,
+    profile,
+    engine: str,
+) -> str | None:
+    from ..backends import engine_has_model_sizes
+
+    if not engine_has_model_sizes(engine):
+        return None
+    if data.model_size:
+        return data.model_size
+
+    # 业务规则：只有实际使用声音档案默认引擎时，才继承该档案的具体型号；
+    # 用户临时切换到其他引擎时不能误用 CosyVoice 的 rl/base 值。
+    profile_model_size = None
+    if engine == getattr(profile, "default_engine", None):
+        profile_model_size = getattr(profile, "default_model_size", None)
+    return profile_model_size or ENGINE_DEFAULT_MODEL_SIZES.get(engine, "1.7B")
+
+
+def build_cosyvoice_instruction(dialect: str, style_instruction: str | None) -> str:
+    """Build one non-conflicting, bounded CosyVoice instruction prompt."""
+    dialect_instruction = DIALECT_INSTRUCTIONS[dialect]
+    style_instruction = sanitize_cosyvoice_style_summary(style_instruction)
+    # 业务规则：方言是本次生成的硬约束，必须位于提示末尾并紧邻
+    # <|endofprompt|>，避免前面的人物风格提示削弱河南话/四川话要求。
+    return "\n".join(part for part in (style_instruction, dialect_instruction) if part)
+
+
+def snapshot_cosyvoice_configuration(
+    data: models.GenerationRequest,
+    engine: str,
+) -> tuple[str | None, str | None]:
+    """Return only the CosyVoice controls that affect this generated take.
+
+    The form keeps a dialect selection while users switch engines, but it is
+    meaningful only for Chinese CosyVoice instruct generation. Saving the
+    normalized snapshot prevents story cards from mislabelling older takes.
+    """
+    if engine != "cosyvoice":
+        return None, None
+    if data.cosyvoice_mode != "instruct" or data.language != "zh":
+        return data.cosyvoice_mode, None
+    return data.cosyvoice_mode, data.dialect
+
+
+async def prepare_generation_content(
     data: models.GenerationRequest,
     profile: DBVoiceProfile,
 ) -> tuple[str, str | None, str]:
-    """Prepare the immutable script that will be synthesized.
+    """准备最终朗读内容，并保证用户正文在整个生成链路中保持不变。
 
-    The gold wand in the generate box is a *reading* setting. It must never
-    turn a user's script into an LLM summary before synthesis. Cloned
-    Qwen3-TTS voices do not offer an instruction channel, so their safe
-    behavior is to speak the exact input text.
+    人物设定和朗读指令只能改变表达方式，不能把正文替换成设定文本。
+    不支持指令通道的声音也必须逐字朗读用户输入的正文。
     """
     source = "manual"
     if data.personality and getattr(profile, "personality", None):
@@ -82,10 +136,11 @@ def prepare_generation_content(
             # 节奏和语气。即使表单里残留旧朗读指令，也不能静默切回 instruct2。
             instruct = None
         elif data.language == "zh":
-            # 方言只在“按方言指令”模式生效。把方言约束放在用户朗读指令之前，
-            # 确保 CosyVoice 的每个长文本分段都收到相同设置。
-            dialect_instruct = DIALECT_INSTRUCTIONS[data.dialect]
-            instruct = "\n".join(part for part in (dialect_instruct, data.instruct) if part)
+            # 业务规则：人物设定仍可编辑 500 字，但长设定必须先由本地
+            # AI 提炼为“可听的朗读特征”，禁止直接截取或原样传给 CosyVoice。
+            # 方言下拉项是硬约束，由后端去除设定中的冲突语句后统一追加。
+            style_instruction = await summarize_cosyvoice_style_instruction(data.instruct)
+            instruct = build_cosyvoice_instruction(data.dialect, style_instruction)
 
     return data.text, instruct, source
 
@@ -103,17 +158,16 @@ async def generate_speech(
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
 
-    from ..backends import engine_has_model_sizes
-
     engine = _resolve_generation_engine(data, profile)
     try:
         profiles.validate_profile_engine(profile, engine)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    model_size = (data.model_size or "1.7B") if engine_has_model_sizes(engine) else None
+    model_size = _resolve_generation_model_size(data, profile, engine)
+    cosyvoice_mode, dialect = snapshot_cosyvoice_configuration(data, engine)
 
-    text, instruct, source = prepare_generation_content(data, profile)
+    text, instruct, source = await prepare_generation_content(data, profile)
 
     generation = await history.create_generation(
         profile_id=data.profile_id,
@@ -127,7 +181,9 @@ async def generate_speech(
         generation_id=generation_id,
         status="generating",
         engine=engine,
-        model_size=model_size if engine_has_model_sizes(engine) else None,
+        model_size=model_size,
+        cosyvoice_mode=cosyvoice_mode,
+        dialect=dialect,
         natural_reading=data.natural_reading,
         source=source,
     )
@@ -208,7 +264,7 @@ async def retry_generation(generation_id: str, db: Session = Depends(get_db)):
             text=gen.text,
             language=gen.language,
             engine=gen.engine or "qwen",
-            model_size=gen.model_size or "1.7B",
+            model_size=gen.model_size or ENGINE_DEFAULT_MODEL_SIZES.get(gen.engine or "qwen", "1.7B"),
             seed=gen.seed,
             instruct=gen.instruct,
             natural_reading=bool(gen.natural_reading),
@@ -255,7 +311,7 @@ async def regenerate_generation(generation_id: str, db: Session = Depends(get_db
             text=gen.text,
             language=gen.language,
             engine=gen.engine or "qwen",
-            model_size=gen.model_size or "1.7B",
+            model_size=gen.model_size or ENGINE_DEFAULT_MODEL_SIZES.get(gen.engine or "qwen", "1.7B"),
             seed=gen.seed,
             instruct=gen.instruct,
             natural_reading=bool(gen.natural_reading),
@@ -375,8 +431,9 @@ async def stream_speech(
         profiles.validate_profile_engine(profile, engine)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    text, instruct, _ = await prepare_generation_content(data, profile)
     tts_model = get_tts_backend_for_engine(engine)
-    model_size = data.model_size or "1.7B"
+    model_size = _resolve_generation_model_size(data, profile, engine) or "default"
 
     await ensure_model_cached_or_raise(engine, model_size)
     await load_engine_model(engine, model_size)
@@ -402,11 +459,11 @@ async def stream_speech(
 
     audio, sample_rate = await generate_chunked(
         tts_model,
-        data.text,
+        text,
         voice_prompt,
         language=data.language,
         seed=data.seed,
-        instruct=data.instruct,
+        instruct=instruct,
         max_chunk_chars=data.max_chunk_chars,
         crossfade_ms=data.crossfade_ms,
         natural_reading=data.natural_reading,

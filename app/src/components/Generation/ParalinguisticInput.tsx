@@ -14,15 +14,15 @@ import { cn } from '@/lib/utils/cn';
 
 // ── Tag definitions ─────────────────────────────────────────────────
 const PARALINGUISTIC_TAGS = [
-  { tag: '[laugh]', label: 'laugh', emoji: '\u{1F602}' },
-  { tag: '[chuckle]', label: 'chuckle', emoji: '\u{1F60F}' },
-  { tag: '[gasp]', label: 'gasp', emoji: '\u{1F62E}' },
-  { tag: '[cough]', label: 'cough', emoji: '\u{1F637}' },
-  { tag: '[sigh]', label: 'sigh', emoji: '\u{1F614}' },
-  { tag: '[groan]', label: 'groan', emoji: '\u{1F629}' },
-  { tag: '[sniff]', label: 'sniff', emoji: '\u{1F443}' },
-  { tag: '[shush]', label: 'shush', emoji: '\u{1F92B}' },
-  { tag: '[clear throat]', label: 'clear throat', emoji: '\u{1F64A}' },
+  { tag: '[laugh]', label: '大笑', emoji: '\u{1F602}' },
+  { tag: '[chuckle]', label: '轻笑', emoji: '\u{1F60F}' },
+  { tag: '[gasp]', label: '倒吸气', emoji: '\u{1F62E}' },
+  { tag: '[cough]', label: '咳嗽', emoji: '\u{1F637}' },
+  { tag: '[sigh]', label: '叹气', emoji: '\u{1F614}' },
+  { tag: '[groan]', label: '呻吟', emoji: '\u{1F629}' },
+  { tag: '[sniff]', label: '吸鼻子', emoji: '\u{1F443}' },
+  { tag: '[shush]', label: '嘘声', emoji: '\u{1F92B}' },
+  { tag: '[clear throat]', label: '清嗓子', emoji: '\u{1F64A}' },
 ] as const;
 
 const TAG_REGEX = /\[(laugh|chuckle|gasp|cough|sigh|groan|sniff|shush|clear throat)\]/gi;
@@ -145,9 +145,11 @@ export const ParalinguisticInput = forwardRef<ParalinguisticInputRef, Paralingui
     }));
 
     // Filtered tag list for the autocomplete menu
-    const filteredTags = PARALINGUISTIC_TAGS.filter((t) =>
-      t.label.toLowerCase().includes(menuFilter.toLowerCase()),
-    );
+    const filteredTags = PARALINGUISTIC_TAGS.filter((t) => {
+      const query = menuFilter.toLowerCase();
+      // 标签展示为中文，但仍允许按模型要求的英文控制词检索。
+      return t.label.toLowerCase().includes(query) || t.tag.toLowerCase().includes(query);
+    });
 
     // ── Sync external value → editor ──────────────────────────────
     useEffect(() => {

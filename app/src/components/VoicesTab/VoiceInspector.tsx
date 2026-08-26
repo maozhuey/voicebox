@@ -24,6 +24,12 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/components/ui/use-toast';
+import {
+  DEFAULT_ENGINE_OPTIONS,
+  getDefaultEngineSelection,
+  PRESET_ONLY_ENGINES,
+  parseDefaultEngineSelection,
+} from '@/components/VoiceProfiles/profileEngineOptions';
 import { SampleList } from '@/components/VoiceProfiles/SampleList';
 import { apiClient } from '@/lib/api/client';
 import type { EffectConfig } from '@/lib/api/types';
@@ -43,6 +49,7 @@ function makeProfileSchema(t: (key: string) => string) {
   return z.object({
     name: z.string().min(1, t('profileForm.validation.nameRequired')).max(100),
     description: z.string().max(500).optional(),
+    personality: z.string().max(500).optional(),
     language: z.enum(LANGUAGE_CODES as [LanguageCode, ...LanguageCode[]]),
   });
 }
@@ -50,6 +57,7 @@ function makeProfileSchema(t: (key: string) => string) {
 type ProfileFormValues = {
   name: string;
   description?: string;
+  personality?: string;
   language: LanguageCode;
 };
 
@@ -74,12 +82,14 @@ export function VoiceInspector({ profileId }: VoiceInspectorProps) {
 
   const [effectsChain, setEffectsChain] = useState<EffectConfig[]>([]);
   const [effectsDirty, setEffectsDirty] = useState(false);
+  const [defaultEngine, setDefaultEngine] = useState('');
 
   const form = useForm<ProfileFormValues>({
     resolver: zodResolver(makeProfileSchema(t)),
     defaultValues: {
       name: '',
       description: '',
+      personality: '',
       language: 'en',
     },
   });
@@ -90,10 +100,14 @@ export function VoiceInspector({ profileId }: VoiceInspectorProps) {
       form.reset({
         name: profile.name,
         description: profile.description || '',
+        personality: profile.personality || '',
         language: profile.language as LanguageCode,
       });
       setEffectsChain(profile.effects_chain ?? []);
       setEffectsDirty(false);
+      setDefaultEngine(
+        getDefaultEngineSelection(profile.default_engine, profile.default_model_size),
+      );
     }
   }, [profile, form]);
 
@@ -163,12 +177,17 @@ export function VoiceInspector({ profileId }: VoiceInspectorProps) {
 
   async function onSubmit(data: ProfileFormValues) {
     try {
+      const defaultSelection = parseDefaultEngineSelection(defaultEngine);
       await updateProfile.mutateAsync({
         profileId,
         data: {
           name: data.name,
           description: data.description,
+          personality: data.personality?.trim() ? data.personality.trim() : undefined,
           language: data.language,
+          // 空字符串是“清除默认引擎”的明确操作，需要原样提交。
+          default_engine: defaultSelection.engine,
+          default_model_size: defaultSelection.modelSize,
         },
       });
 
@@ -213,7 +232,13 @@ export function VoiceInspector({ profileId }: VoiceInspectorProps) {
     );
   }
 
-  const isDirty = form.formState.isDirty || effectsDirty;
+  const isSampleBasedProfile = profile.voice_type !== 'preset';
+  const availableDefaultEngines = DEFAULT_ENGINE_OPTIONS.filter(
+    (option) => !isSampleBasedProfile || !PRESET_ONLY_ENGINES.has(option.engine),
+  );
+  const engineDirty =
+    defaultEngine !== getDefaultEngineSelection(profile.default_engine, profile.default_model_size);
+  const isDirty = form.formState.isDirty || effectsDirty || engineDirty;
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
@@ -298,6 +323,28 @@ export function VoiceInspector({ profileId }: VoiceInspectorProps) {
 
               <FormField
                 control={form.control}
+                name="personality"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('profileForm.fields.personalityLabel')}</FormLabel>
+                    <FormControl>
+                      <Textarea
+                        placeholder={t('profileForm.fields.personalityPlaceholder')}
+                        rows={4}
+                        maxLength={500}
+                        {...field}
+                      />
+                    </FormControl>
+                    <p className="text-xs text-muted-foreground">
+                      {t('profileForm.fields.personalityHint')}
+                    </p>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
                 name="language"
                 render={({ field }) => (
                   <FormItem>
@@ -320,6 +367,32 @@ export function VoiceInspector({ profileId }: VoiceInspectorProps) {
                   </FormItem>
                 )}
               />
+
+              <FormItem>
+                <FormLabel>{t('profileForm.fields.defaultEngine')}</FormLabel>
+                <Select
+                  value={defaultEngine || '_none'}
+                  onValueChange={(value) => setDefaultEngine(value === '_none' ? '' : value)}
+                  disabled={profile.voice_type === 'preset'}
+                >
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue placeholder={t('profileForm.fields.noPreference')} />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    <SelectItem value="_none">{t('profileForm.fields.noPreference')}</SelectItem>
+                    {availableDefaultEngines.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  {t('profileForm.fields.defaultEngineHint')}
+                </p>
+              </FormItem>
 
               {/* Effects */}
               <div className="space-y-2">

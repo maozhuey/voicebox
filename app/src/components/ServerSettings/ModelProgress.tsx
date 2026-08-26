@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import type { ModelProgress as ModelProgressType } from '@/lib/api/types';
+import { toChineseErrorMessage } from '@/lib/utils/errorMessage';
 import { useServerStore } from '@/stores/serverStore';
 
 interface ModelProgressProps {
@@ -90,15 +91,15 @@ export function ModelProgress({
   const getStatusText = () => {
     switch (progress.status) {
       case 'complete':
-        return 'Download complete';
+        return '下载完成';
       case 'error':
-        return `Error: ${progress.error || 'Unknown error'}`;
+        return `错误：${toChineseErrorMessage(progress.error, '未知错误')}`;
       case 'downloading':
-        return progress.filename ? `Downloading ${progress.filename}...` : 'Downloading...';
+        return progress.filename ? `正在下载 ${progress.filename}…` : '正在下载…';
       case 'extracting':
-        return 'Extracting...';
+        return '正在解压…';
       default:
-        return 'Processing...';
+        return '处理中…';
     }
   };
 

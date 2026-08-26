@@ -12,9 +12,10 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Textarea } from '@/components/ui/textarea';
 import type { StoryItemDetail } from '@/lib/api/types';
+import { ALL_LANGUAGES, type LanguageCode } from '@/lib/constants/languages';
 import { cn } from '@/lib/utils/cn';
-import { useStoryStore } from '@/stores/storyStore';
 import { useServerStore } from '@/stores/serverStore';
+import { useStoryStore } from '@/stores/storyStore';
 
 interface StoryChatItemProps {
   item: StoryItemDetail;
@@ -26,6 +27,35 @@ interface StoryChatItemProps {
   isPlaying: boolean;
   dragHandleProps?: React.HTMLAttributes<HTMLButtonElement>;
   isDragging?: boolean;
+}
+
+const ENGINE_MODEL_LABELS: Record<string, string> = {
+  qwen: 'Qwen3-TTS',
+  qwen_custom_voice: 'Qwen CustomVoice',
+  luxtts: 'LuxTTS',
+  chatterbox: 'Chatterbox',
+  chatterbox_turbo: 'Chatterbox Turbo',
+  tada: 'TADA',
+  kokoro: 'Kokoro 82M',
+};
+
+function getModelLabel(item: StoryItemDetail): string {
+  if (item.engine === 'cosyvoice') {
+    return item.model_size === 'base' ? 'CosyVoice 3 0.5B' : 'CosyVoice 3 0.5B RL';
+  }
+
+  const engineLabel = ENGINE_MODEL_LABELS[item.engine ?? ''] ?? item.engine ?? '—';
+  return item.model_size ? `${engineLabel} ${item.model_size}` : engineLabel;
+}
+
+function getCosyVoiceDialect(item: StoryItemDetail): StoryItemDetail['dialect'] {
+  if (item.dialect) return item.dialect;
+  // Legacy takes predate the persisted dialect fields. Their effective
+  // instruction is still stored, so recover a display-only value when safe.
+  if (item.instruct?.includes('请用河南话表达。')) return 'henan';
+  if (item.instruct?.includes('请用四川话表达。')) return 'sichuan';
+  if (item.instruct?.includes('请用普通话表达。')) return 'mandarin';
+  return undefined;
 }
 
 export function StoryChatItem({
@@ -48,6 +78,23 @@ export function StoryChatItem({
   const itemStartMs = item.start_time_ms;
   const itemEndMs = item.start_time_ms + item.duration * 1000;
   const isCurrentlyPlaying = isPlaying && currentTimeMs >= itemStartMs && currentTimeMs < itemEndMs;
+  const isGeneratedAudio = item.engine !== 'import';
+  const languageLabel = ALL_LANGUAGES[item.language as LanguageCode] ?? item.language;
+  const cosyvoiceMode =
+    item.engine === 'cosyvoice'
+      ? (item.cosyvoice_mode ?? (item.instruct ? 'instruct' : 'reference'))
+      : undefined;
+  const dialect = item.engine === 'cosyvoice' ? getCosyVoiceDialect(item) : undefined;
+  const selectedVersionId = item.version_id ?? item.active_version_id;
+  const activeEffects =
+    item.versions
+      ?.find((version) => version.id === selectedVersionId)
+      ?.effects_chain?.filter((effect) => effect.enabled) ?? [];
+  const effectsLabel = activeEffects.length
+    ? activeEffects
+        .map((effect) => t(`effects.types.${effect.type}.label`, { defaultValue: effect.type }))
+        .join('、')
+    : t('generation.effects.none');
 
   const handlePlay = () => {
     // Seek to the start of this item
@@ -109,7 +156,7 @@ export function StoryChatItem({
           <span className="font-medium text-sm truncate">
             {item.engine === 'import' ? item.text : item.profile_name}
           </span>
-          {item.engine !== 'import' && (
+          {isGeneratedAudio && (
             <span className="text-xs text-muted-foreground">{item.language}</span>
           )}
           <span className="text-xs text-muted-foreground tabular-nums ml-auto">
@@ -117,12 +164,56 @@ export function StoryChatItem({
           </span>
         </div>
         {item.engine === 'import' ? null : (
-          <Textarea
-            value={item.text}
-            className="flex-1 resize-none text-sm text-muted-foreground select-text bg-card cursor-text"
-            readOnly
-            onDoubleClick={handlePlay}
-          />
+          <>
+            <fieldset className="mb-2 flex flex-wrap gap-1.5 border-0 p-0">
+              <legend className="sr-only">{t('storyContent.generationConfig.title')}</legend>
+              {[
+                t('storyContent.generationConfig.voice', { value: item.profile_name }),
+                t('storyContent.generationConfig.language', { value: languageLabel }),
+                t('storyContent.generationConfig.model', { value: getModelLabel(item) }),
+                ...(cosyvoiceMode
+                  ? [
+                      t('storyContent.generationConfig.mode', {
+                        value: t(`generation.cosyvoiceMode.${cosyvoiceMode}`),
+                      }),
+                    ]
+                  : []),
+                ...(dialect
+                  ? [
+                      t('storyContent.generationConfig.dialect', {
+                        value: t(`generation.dialect.${dialect}`),
+                      }),
+                    ]
+                  : []),
+                t('storyContent.generationConfig.effects', { value: effectsLabel }),
+                t('storyContent.generationConfig.naturalReading', {
+                  value: t(
+                    item.natural_reading
+                      ? 'storyContent.generationConfig.enabled'
+                      : 'storyContent.generationConfig.disabled',
+                  ),
+                }),
+              ].map((label) => (
+                <span
+                  key={label}
+                  className="rounded-full border border-border bg-muted/40 px-2 py-0.5 text-[11px] text-muted-foreground"
+                >
+                  {label}
+                </span>
+              ))}
+            </fieldset>
+            {item.instruct && (
+              <p className="mb-2 break-words text-xs leading-5 text-muted-foreground">
+                {t('storyContent.generationConfig.instruct', { value: item.instruct })}
+              </p>
+            )}
+            <Textarea
+              value={item.text}
+              className="flex-1 resize-none text-sm text-muted-foreground select-text bg-card cursor-text"
+              readOnly
+              onDoubleClick={handlePlay}
+            />
+          </>
         )}
       </div>
 

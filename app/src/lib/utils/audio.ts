@@ -56,13 +56,13 @@ export async function getAudioDuration(
         if (Number.isFinite(audio.duration) && audio.duration > 0) {
           resolve(audio.duration);
         } else {
-          reject(new Error('Audio file has invalid duration metadata'));
+          reject(new Error('音频文件的时长信息无效'));
         }
       });
 
       audio.addEventListener('error', () => {
         URL.revokeObjectURL(url);
-        reject(new Error('Failed to load audio file'));
+        reject(new Error('无法加载音频文件'));
       });
 
       audio.src = url;

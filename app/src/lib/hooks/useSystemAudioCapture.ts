@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { usePlatform } from '@/platform/PlatformContext';
+import { toChineseErrorMessage } from '@/lib/utils/errorMessage';
 
 interface UseSystemAudioCaptureOptions {
   maxDurationSeconds?: number;
@@ -48,13 +49,13 @@ export function useSystemAudioCapture({
 
   const startRecording = useCallback(async () => {
     if (!platform.metadata.isTauri) {
-      const errorMsg = 'System audio capture is only available in the desktop app.';
+      const errorMsg = '系统音频捕获仅支持桌面客户端。';
       setError(errorMsg);
       return;
     }
 
     if (!isSupported) {
-      const errorMsg = 'System audio capture is not supported on this platform.';
+      const errorMsg = '当前平台不支持系统音频捕获。';
       setError(errorMsg);
       return;
     }
@@ -83,10 +84,7 @@ export function useSystemAudioCapture({
         }
       }, 100);
     } catch (err) {
-      const errorMessage =
-        err instanceof Error
-          ? err.message
-          : 'Failed to start system audio capture. Please check permissions.';
+      const errorMessage = toChineseErrorMessage(err, '无法开始捕获系统音频，请检查权限设置。');
       setError(errorMessage);
       setIsRecording(false);
     }
@@ -115,8 +113,7 @@ export function useSystemAudioCapture({
         : undefined;
       onRecordingComplete?.(blob, recordedDuration);
     } catch (err) {
-      const errorMessage =
-        err instanceof Error ? err.message : 'Failed to stop system audio capture.';
+      const errorMessage = toChineseErrorMessage(err, '无法停止系统音频捕获。');
       setError(errorMessage);
     }
   }, [isRecording, onRecordingComplete, platform]);
