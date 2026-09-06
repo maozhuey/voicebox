@@ -25,6 +25,7 @@ async def transcribe_audio(
     file: UploadFile = File(...),
     language: str | None = Form(None),
     model: str | None = Form(None),
+    initial_prompt: str | None = Form(None),
 ):
     """Transcribe audio file to text."""
     uploaded_ext = Path(file.filename or "").suffix.lower()
@@ -88,11 +89,20 @@ async def transcribe_audio(
                 },
             )
 
-        text = await whisper_model.transcribe(stt_path, language, model_size)
+        if initial_prompt and len(initial_prompt) > 2000:
+            raise HTTPException(status_code=400, detail="initial_prompt must be at most 2000 characters")
+        result = await whisper_model.transcribe(
+            stt_path,
+            language,
+            model_size,
+            initial_prompt=initial_prompt.strip() if initial_prompt else None,
+        )
 
         return models.TranscriptionResponse(
-            text=text,
+            text=result.text,
             duration=duration,
+            timestamped_text=result.timestamped_text,
+            segments=result.segments,
         )
 
     except HTTPException:

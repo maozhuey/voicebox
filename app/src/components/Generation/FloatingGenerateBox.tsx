@@ -88,6 +88,7 @@ export function FloatingGenerateBox({
         addPendingStoryAdd(generationId, selectedStoryId);
       }
     },
+    getTargetStoryId: () => (isStoriesRoute ? selectedStoryId : null),
     getEffectsChain: () => {
       if (!selectedPresetId) return undefined;
       // Profile's own effects chain (no matching preset)

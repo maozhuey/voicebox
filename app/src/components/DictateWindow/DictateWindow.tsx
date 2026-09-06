@@ -81,7 +81,14 @@ export function DictateWindow() {
     );
     unlistens.push(
       listen('dictate:stop', () => {
-        if (sessionRef.current.isRecording) sessionRef.current.stopRecording();
+        // stopRecording also handles the microphone-starting phase. Gating on
+        // React's rendered isRecording value dropped quick key releases.
+        sessionRef.current.stopRecording();
+      }),
+    );
+    unlistens.push(
+      listen('dictate:restart', () => {
+        sessionRef.current.restartRecording();
       }),
     );
     return () => {

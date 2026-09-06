@@ -67,7 +67,9 @@ class QwenCustomVoiceBackend:
         self._current_model_size: Optional[str] = None
 
     def _get_device(self) -> str:
-        return get_torch_device(allow_xpu=True, allow_directml=True)
+        if getattr(self, "_voicebox_force_cpu", False):
+            return "cpu"
+        return get_torch_device(allow_xpu=True, allow_directml=True, allow_mps=True)
 
     def is_loaded(self) -> bool:
         return self.model is not None
@@ -111,12 +113,14 @@ class QwenCustomVoiceBackend:
                     model_path,
                     torch_dtype=torch.float32,
                     low_cpu_mem_usage=False,
+                    local_files_only=is_cached,
                 )
             else:
                 self.model = Qwen3TTSModel.from_pretrained(
                     model_path,
                     device_map=self.device,
                     torch_dtype=torch.bfloat16,
+                    local_files_only=is_cached,
                 )
 
         self._current_model_size = model_size

@@ -13,5 +13,16 @@ export const $TranscriptionResponse = {
       type: 'number',
       isRequired: true,
     },
+    timestamped_text: {
+      type: 'string',
+      isRequired: true,
+    },
+    segments: {
+      type: 'array',
+      contains: {
+        type: 'TranscriptSegment',
+      },
+      isRequired: true,
+    },
   },
 } as const;

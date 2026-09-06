@@ -17,7 +17,7 @@ export function GenerationPage() {
   const persistedMaxChunkChars = settings?.max_chunk_chars ?? 800;
   const persistedCrossfadeMs = settings?.crossfade_ms ?? 50;
   const normalizeAudio = settings?.normalize_audio ?? true;
-  const autoplayOnGenerate = settings?.autoplay_on_generate ?? true;
+  const autoplayOnGenerate = settings?.autoplay_on_generate ?? false;
   const naturalReading = settings?.natural_reading ?? false;
   // Slider mirrors persist on commit (pointer-up / keyboard-release) only —
   // onValueChange would fire a PATCH for every pointer-move pixel and round-

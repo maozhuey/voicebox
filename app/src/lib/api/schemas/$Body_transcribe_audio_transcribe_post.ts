@@ -20,5 +20,27 @@ export const $Body_transcribe_audio_transcribe_post = {
         },
       ],
     },
+    model: {
+      type: 'any-of',
+      contains: [
+        {
+          type: 'string',
+        },
+        {
+          type: 'null',
+        },
+      ],
+    },
+    initial_prompt: {
+      type: 'any-of',
+      contains: [
+        {
+          type: 'string',
+        },
+        {
+          type: 'null',
+        },
+      ],
+    },
   },
 } as const;

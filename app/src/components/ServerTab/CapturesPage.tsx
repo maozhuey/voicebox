@@ -22,6 +22,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
 import { Toggle } from '@/components/ui/toggle';
 import { useToast } from '@/components/ui/use-toast';
 import { useDictationReadiness } from '@/lib/hooks/useDictationReadiness';
@@ -130,6 +131,7 @@ export function CapturesPage() {
   const readiness = useDictationReadiness();
   const sttModel = settings?.stt_model ?? 'turbo';
   const language = settings?.language ?? 'auto';
+  const transcriptionPrompt = settings?.transcription_prompt ?? '';
   const autoRefine = settings?.auto_refine ?? true;
   const llmModel = settings?.llm_model ?? '0.6B';
   const smartCleanup = settings?.smart_cleanup ?? true;
@@ -142,6 +144,7 @@ export function CapturesPage() {
   const toggleToTalkKeys = settings?.chord_toggle_to_talk_keys ?? defaultChordKeys('toggle');
 
   const [chordEditor, setChordEditor] = useState<'push' | 'toggle' | null>(null);
+  const [transcriptionPromptDraft, setTranscriptionPromptDraft] = useState('');
   const [opening, setOpening] = useState(false);
   const [capturesPath, setCapturesPath] = useState<string | null>(null);
 
@@ -156,6 +159,10 @@ export function CapturesPage() {
       })
       .catch(() => {});
   }, [serverUrl]);
+
+  useEffect(() => {
+    setTranscriptionPromptDraft(transcriptionPrompt);
+  }, [transcriptionPrompt]);
 
   const openCapturesFolder = useCallback(async () => {
     if (!capturesPath) return;
@@ -366,6 +373,24 @@ export function CapturesPage() {
           }
         />
 
+        <SettingRow
+          title={t('settings.captures.transcription.prompt.title')}
+          description={t('settings.captures.transcription.prompt.description')}
+          action={
+            <Textarea
+              value={transcriptionPromptDraft}
+              onChange={(event) => setTranscriptionPromptDraft(event.target.value)}
+              onBlur={() => {
+                const next = transcriptionPromptDraft.trim();
+                if (next !== transcriptionPrompt) update({ transcription_prompt: next });
+              }}
+              maxLength={2000}
+              rows={4}
+              placeholder={t('settings.captures.transcription.prompt.placeholder')}
+              className="w-[360px] min-h-24 resize-y text-xs"
+            />
+          }
+        />
       </SettingSection>
 
       <SettingSection

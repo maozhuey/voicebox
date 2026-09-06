@@ -317,9 +317,9 @@ class CosyVoiceTTSBackend:
         self._model_load_lock = asyncio.Lock()
 
     def _get_device(self) -> str:
-        # CosyVoice's PyTorch path does not support MPS reliably. On macOS it
-        # must remain on CPU rather than loading on MPS and failing mid-request.
-        return get_torch_device(force_cpu_on_mac=True)
+        if getattr(self, "_voicebox_force_cpu", False):
+            return "cpu"
+        return get_torch_device(allow_mps=True)
 
     def _get_model_path(self, model_size: str = "rl") -> str:
         try:
@@ -369,7 +369,14 @@ class CosyVoiceTTSBackend:
             # downloading roughly 4 GB of unused files per model selection.
             ignored_files = ["flow.decoder.estimator.fp32.onnx", "speech_tokenizer_v3.batch.onnx"]
             ignored_files.append("llm.pt" if model_size == "rl" else "llm.rl.pt")
-            model_dir = Path(snapshot_download(repo_id=repo_id, token=None, ignore_patterns=ignored_files))
+            model_dir = Path(
+                snapshot_download(
+                    repo_id=repo_id,
+                    token=None,
+                    ignore_patterns=ignored_files,
+                    local_files_only=self._is_model_cached(model_size),
+                )
+            )
             if model_size == "rl":
                 model_dir = self._create_rl_model_view(model_dir)
             from cosyvoice.cli.cosyvoice import CosyVoice3

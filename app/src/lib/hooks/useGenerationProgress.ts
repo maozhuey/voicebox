@@ -33,10 +33,11 @@ export function useGenerationProgress() {
   const pendingIds = useGenerationStore((s) => s.pendingGenerationIds);
   const removePendingGeneration = useGenerationStore((s) => s.removePendingGeneration);
   const removePendingStoryAdd = useGenerationStore((s) => s.removePendingStoryAdd);
+  const consumeAutoPlaySuppression = useGenerationStore((s) => s.consumeAutoPlaySuppression);
   const isPlaying = usePlayerStore((s) => s.isPlaying);
   const setAudioWithAutoPlay = usePlayerStore((s) => s.setAudioWithAutoPlay);
   const { settings: genSettings } = useGenerationSettings();
-  const autoplayOnGenerate = genSettings?.autoplay_on_generate ?? true;
+  const autoplayOnGenerate = genSettings?.autoplay_on_generate ?? false;
 
   // Keep refs to avoid stale closures in EventSource handlers
   const isPlayingRef = useRef(isPlaying);
@@ -76,7 +77,7 @@ export function useGenerationProgress() {
       const url = apiClient.getGenerationStatusUrl(id);
       const source = new EventSource(url);
 
-      source.onmessage = (event) => {
+      source.onmessage = async (event) => {
         try {
           const data: GenerationStatusEvent = JSON.parse(event.data);
 
@@ -108,32 +109,42 @@ export function useGenerationProgress() {
             source.close();
             currentSources.delete(id);
             removePendingGeneration(id);
+            const autoPlaySuppressed = consumeAutoPlaySuppression(id);
 
             // Refetch history to pick up the completed generation
             queryClient.refetchQueries({ queryKey: ['history'] });
 
-            // If this generation was queued for a story, add it now
-            const storyId = removePendingStoryAdd(id);
+            // Resolve completion metadata once for both story refresh and optional
+            // autoplay. target_story_id is persisted by the backend, while the
+            // in-memory map remains only as a same-session fast path.
+            const cachedGeneration = queryClient
+              .getQueriesData<HistoryListResponse>({ queryKey: ['history'] })
+              .flatMap(([, cached]) => cached?.items ?? [])
+              .find((item) => item.id === id);
+            let generation = cachedGeneration;
+            if (!generation) {
+              try {
+                generation = await apiClient.getGeneration(id);
+              } catch {
+                // Completion itself remains valid if metadata refresh fails.
+              }
+            }
+
+            const pendingStoryId = removePendingStoryAdd(id);
+            const storyId = generation?.target_story_id ?? pendingStoryId;
             if (storyId) {
-              apiClient
-                .addStoryItem(storyId, { generation_id: id })
-                .then(() => {
-                  queryClient.invalidateQueries({ queryKey: ['stories'] });
-                  queryClient.invalidateQueries({ queryKey: ['stories', storyId] });
-                  toast({
-                    title: '已添加到故事',
-                    description: data.duration
-                      ? `音频已生成（${data.duration.toFixed(2)} 秒）并添加到故事`
-                      : '音频已生成并添加到故事',
-                  });
-                })
-                .catch(() => {
-                  toast({
-                    title: '音频生成完成',
-                    description: '音频已生成，但添加到故事失败',
-                    variant: 'destructive',
-                  });
-                });
+              // 业务规则：故事项由后端在发布 completed 前创建，前端只刷新
+              // 数据，避免 SSE 断线时丢失关联，也避免前后端竞争重复添加。
+              await Promise.all([
+                queryClient.invalidateQueries({ queryKey: ['stories'] }),
+                queryClient.invalidateQueries({ queryKey: ['stories', storyId] }),
+              ]);
+              toast({
+                title: '已添加到故事',
+                description: data.duration
+                  ? `音频已生成（${data.duration.toFixed(2)} 秒）并添加到故事`
+                  : '音频已生成并添加到故事',
+              });
             } else {
               // toast({
               //   title: 'Generation complete!',
@@ -147,14 +158,26 @@ export function useGenerationProgress() {
             // Skip agent-initiated sources — the floating pill window
             // plays those itself.
             const isAgentSpeak = data.source ? AGENT_SOURCES.has(data.source) : false;
-            if (autoplayRef.current && !isPlayingRef.current && !isAgentSpeak) {
+            if (
+              autoplayRef.current &&
+              !autoPlaySuppressed &&
+              !isPlayingRef.current &&
+              !isAgentSpeak
+            ) {
               const genAudioUrl = apiClient.getAudioUrl(id);
-              setAudioWithAutoPlay(genAudioUrl, id, '', '');
+              // 业务规则：自动播放也必须告知用户当前是哪条音频。
+              // 优先使用已有历史缓存，缓存缺失时再单独读取任务详情。
+              const textSummary = generation?.text.replace(/\s+/g, ' ').trim().slice(0, 50);
+              const playerTitle = generation
+                ? `${generation.profile_name}${textSummary ? ` · ${textSummary}` : ''}`
+                : '新生成的音频';
+              setAudioWithAutoPlay(genAudioUrl, id, generation?.profile_id ?? null, playerTitle);
             }
           } else if (data.status === 'failed' || data.status === 'not_found') {
             source.close();
             currentSources.delete(id);
             removePendingGeneration(id);
+            consumeAutoPlaySuppression(id);
             removePendingStoryAdd(id);
 
             queryClient.refetchQueries({ queryKey: ['history'] });
@@ -176,6 +199,7 @@ export function useGenerationProgress() {
         source.close();
         currentSources.delete(id);
         removePendingGeneration(id);
+        consumeAutoPlaySuppression(id);
         queryClient.refetchQueries({ queryKey: ['history'] });
       };
 
@@ -185,6 +209,7 @@ export function useGenerationProgress() {
     pendingIds,
     removePendingGeneration,
     removePendingStoryAdd,
+    consumeAutoPlaySuppression,
     queryClient,
     toast,
     setAudioWithAutoPlay,

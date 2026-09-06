@@ -69,6 +69,8 @@ export interface EffectConfig {
 
 export interface GenerationRequest {
   profile_id: string;
+  /** 生成完成后自动加入的故事；非故事页生成时为空。 */
+  target_story_id?: string;
   text: string;
   language: LanguageCode;
   seed?: number;
@@ -109,6 +111,7 @@ export interface GenerationVersionResponse {
 export interface GenerationResponse {
   id: string;
   profile_id: string;
+  target_story_id?: string;
   text: string;
   language: string;
   audio_path?: string;
@@ -171,6 +174,12 @@ export interface RefinementFlags {
   preserve_technical: boolean;
 }
 
+export interface TranscriptSegment {
+  start_ms: number;
+  end_ms: number;
+  text: string;
+}
+
 export interface CaptureResponse {
   id: string;
   audio_path: string;
@@ -178,6 +187,8 @@ export interface CaptureResponse {
   language?: string | null;
   duration_ms?: number | null;
   transcript_raw: string;
+  transcript_timestamped?: string | null;
+  transcript_segments?: TranscriptSegment[];
   transcript_refined?: string | null;
   stt_model?: string | null;
   llm_model?: string | null;
@@ -215,6 +226,8 @@ export interface CaptureRetranscribeRequest {
 export interface CaptureSettings {
   stt_model: WhisperModelSize;
   language: string;
+  /** Optional vocabulary or prior-text context passed to Whisper. */
+  transcription_prompt: string;
   auto_refine: boolean;
   llm_model: Qwen3ModelSize;
   smart_cleanup: boolean;
@@ -271,6 +284,8 @@ export interface TranscriptionRequest {
 export interface TranscriptionResponse {
   text: string;
   duration: number;
+  timestamped_text: string;
+  segments: TranscriptSegment[];
 }
 
 export interface HealthResponse {

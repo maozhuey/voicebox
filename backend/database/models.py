@@ -95,6 +95,10 @@ class Generation(Base):
     # "personality_reading" when character-setting reading was selected. The
     # latter must still retain the user-entered text verbatim.
     source = Column(String, nullable=False, default="manual")
+    # 业务规则：从故事页发起的生成任务必须持久化记住目标故事。
+    # 不能只依赖前端内存映射，否则页面刷新或服务重启后音频会生成成功
+    # 但无法自动加入原故事。非故事页生成时保持为空。
+    target_story_id = Column(String, ForeignKey("stories.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
@@ -210,6 +214,10 @@ class CaptureSettings(Base):
     id = Column(Integer, primary_key=True, default=1)
     stt_model = Column(String, nullable=False, default="turbo")
     language = Column(String, nullable=False, default="auto")
+    # Optional vocabulary or prior transcript context forwarded to Whisper.
+    # This is the supported path for names/acronyms whose spelling cannot be
+    # recovered reliably from audio alone (for example mixed CJK/Latin terms).
+    transcription_prompt = Column(String, nullable=False, default="")
     auto_refine = Column(Boolean, nullable=False, default=True)
     llm_model = Column(String, nullable=False, default="0.6B")
     smart_cleanup = Column(Boolean, nullable=False, default=True)
@@ -243,7 +251,9 @@ class GenerationSettings(Base):
     max_chunk_chars = Column(Integer, nullable=False, default=800)
     crossfade_ms = Column(Integer, nullable=False, default=50)
     normalize_audio = Column(Boolean, nullable=False, default=True)
-    autoplay_on_generate = Column(Boolean, nullable=False, default=True)
+    # 业务规则: 新安装默认不自动播放生成结果, 避免长任务或
+    # 并行任务在用户未操作播放器时突然发声. 用户可在设置中主动开启.
+    autoplay_on_generate = Column(Boolean, nullable=False, default=False)
     # Opt-in by default: existing users retain byte-for-byte legacy generation
     # behavior until they explicitly enable natural reading in settings.
     natural_reading = Column(Boolean, nullable=False, default=False)
@@ -312,6 +322,10 @@ class Capture(Base):
     language = Column(String, nullable=True)
     duration_ms = Column(Integer, nullable=True)
     transcript_raw = Column(Text, nullable=False, default="")
+    # Whisper-native segment boundaries are stored with the raw transcript.
+    # Refined text never rewrites this JSON because its wording no longer has
+    # a one-to-one relationship with the source audio timeline.
+    transcript_segments = Column(Text, nullable=True)
     transcript_refined = Column(Text, nullable=True)
     stt_model = Column(String, nullable=True)
     llm_model = Column(String, nullable=True)

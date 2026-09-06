@@ -42,6 +42,7 @@ def run_migrations(engine) -> None:
     _migrate_generation_settings(engine, inspector, tables)
     _migrate_effect_presets(engine, inspector, tables)
     _migrate_generation_versions(engine, inspector, tables)
+    _migrate_captures(engine, inspector, tables)
     _migrate_capture_settings(engine, inspector, tables)
     _migrate_mcp_bindings(engine, inspector, tables)
     _normalize_storage_paths(engine, tables)
@@ -204,6 +205,11 @@ def _migrate_generations(engine, inspector, tables: set[str]) -> None:
         _add_column(engine, "generations", "progress_current INTEGER", "progress_current")
     if "progress_total" not in columns:
         _add_column(engine, "generations", "progress_total INTEGER", "progress_total")
+    if "target_story_id" not in columns:
+        # SQLite ALTER TABLE cannot add the FK constraint safely to an existing
+        # table, so legacy databases receive the nullable identifier column.
+        # New databases still get the ORM-declared foreign key from create_all.
+        _add_column(engine, "generations", "target_story_id VARCHAR", "target_story_id")
 
 
 def _migrate_generation_settings(engine, inspector, tables: set[str]) -> None:
@@ -235,12 +241,29 @@ def _migrate_generation_versions(engine, inspector, tables: set[str]) -> None:
         _add_column(engine, "generation_versions", "source_version_id VARCHAR", "source_version_id")
 
 
+def _migrate_captures(engine, inspector, tables: set[str]) -> None:
+    if "captures" not in tables:
+        return
+    columns = _get_columns(inspector, "captures")
+    if "transcript_segments" not in columns:
+        # Existing captures remain NULL: there is no accurate way to recover
+        # sentence positions from only the saved full text and total duration.
+        _add_column(engine, "captures", "transcript_segments TEXT", "transcript_segments")
+
+
 def _migrate_capture_settings(engine, inspector, tables: set[str]) -> None:
     if "capture_settings" not in tables:
         return
     columns = _get_columns(inspector, "capture_settings")
     push_default = json.dumps(default_push_to_talk_chord())
     toggle_default = json.dumps(default_toggle_to_talk_chord())
+    if "transcription_prompt" not in columns:
+        _add_column(
+            engine,
+            "capture_settings",
+            "transcription_prompt VARCHAR NOT NULL DEFAULT ''",
+            "transcription_prompt",
+        )
     if "allow_auto_paste" not in columns:
         _add_column(
             engine,

@@ -17,7 +17,10 @@ interface ActiveSource {
  * Supports multiple simultaneous audio sources for overlapping clips on different tracks.
  * Uses AudioContext for sample-accurate timing synchronization.
  */
-export function useStoryPlayback(items: StoryItemDetail[] | undefined) {
+export function useStoryPlayback(
+  storyId: string | null | undefined,
+  items: StoryItemDetail[] | undefined,
+) {
   const isPlaying = useStoryStore((state) => state.isPlaying);
   const playbackItems = useStoryStore((state) => state.playbackItems);
   const playbackStartContextTime = useStoryStore((state) => state.playbackStartContextTime);
@@ -225,6 +228,20 @@ export function useStoryPlayback(items: StoryItemDetail[] | undefined) {
     }
     activeSourcesRef.current.clear();
   }, [stopSource]);
+
+  useEffect(() => {
+    const playbackState = useStoryStore.getState();
+    const currentStoryCanPlay = Boolean(storyId && items && items.length > 0);
+    const belongsToCurrentStory = playbackState.playbackStoryId === storyId;
+
+    if (playbackState.playbackStoryId && (!currentStoryCanPlay || !belongsToCurrentStory)) {
+      // 业务规则：切换故事、切到空故事时，旧故事的 Web Audio
+      // 音源必须立即停止。此时时间轴会被隐藏，若只清缓存而不断开
+      // 音源，用户会听到无法定位、无法关闭的“隐形播放”。
+      stopAllSources();
+      playbackState.stop();
+    }
+  }, [storyId, items, stopAllSources]);
 
   // Schedule playback for all items that should be playing
   const schedulePlayback = useCallback(

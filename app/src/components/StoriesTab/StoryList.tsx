@@ -103,11 +103,13 @@ export function StoryList() {
           setCreateDialogOpen(false);
           setNewStoryName('');
           setNewStoryDescription('');
-          // 业务规则：故事创建成功后只通过全局 Toast 反馈，不在内容区保留
-          // 成功提示卡片，避免遮挡新故事的编辑区域。
+          // 业务规则：故事创建成功后仅在屏幕中间偏上位置显示
+          // 1 秒的单行横条 Toast，不在内容区保留成功卡片。
           toast({
             title: t('stories.toast.created'),
-            description: t('stories.toast.createdDescription', { name: story.name }),
+            className:
+              'fixed left-1/2 top-[20%] z-[110] w-auto min-w-[180px] max-w-[calc(100vw-2rem)] -translate-x-1/2 px-4 py-3',
+            duration: 1000,
           });
         },
         onError: (error) => {

@@ -56,6 +56,7 @@
       "exportDropdownLabel": "匯出格式",
       "exportAudio": "音訊 (WAV)",
       "exportTranscript": "文字稿 (TXT)",
+      "exportTimestampedTranscript": "帶時間戳文字稿 (TXT)",
       "exportMarkdown": "Markdown (MD)",
       "delete": "刪除",
       "playAs": "以 {{name}} 播放",
@@ -91,6 +92,8 @@
       "exportSuccess": "已匯出至 {{path}}",
       "exportFailed": "匯出失敗",
       "exportEmpty": "沒有可匯出的內容",
+      "exportTimestampedUnavailable": "暫無帶時間戳文字稿",
+      "exportTimestampedUnavailableDescription": "請重新轉錄此捕獲，以產生準確的時間戳。",
       "shortcutNotArmed": "快捷鍵已開啟,但尚未就緒",
       "shortcutNotArmedDescription_one": "{{names}} 仍需下載。請開啟「擷取」分頁開始下載。",
       "shortcutNotArmedDescription_other": "{{names}} 仍需下載。請開啟「擷取」分頁開始下載。"

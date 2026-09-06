@@ -23,6 +23,7 @@ from ..models import CaptureResponse, RefinementFlagsModel
 from ..utils.audio import load_audio
 from .refinement import RefinementFlags, refine_transcript
 from .transcribe import get_whisper_model
+from ..transcription import format_timestamped_transcript, parse_stored_segments, serialize_segments
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +49,7 @@ def _to_response(row: DBCapture) -> CaptureResponse:
         except (ValueError, TypeError):
             flags_model = None
 
+    transcript_segments = parse_stored_segments(row.transcript_segments)
     return CaptureResponse(
         id=row.id,
         audio_path=row.audio_path,
@@ -55,6 +57,10 @@ def _to_response(row: DBCapture) -> CaptureResponse:
         language=row.language,
         duration_ms=row.duration_ms,
         transcript_raw=row.transcript_raw or "",
+        transcript_segments=transcript_segments,
+        transcript_timestamped=(
+            format_timestamped_transcript(transcript_segments) if transcript_segments else None
+        ),
         transcript_refined=row.transcript_refined,
         stt_model=row.stt_model,
         llm_model=row.llm_model,
@@ -71,6 +77,7 @@ async def create_capture(
     language: Optional[str],
     stt_model: Optional[str],
     db: Session,
+    initial_prompt: Optional[str] = None,
 ) -> CaptureResponse:
     """Persist raw audio, run STT, store the row."""
     if source not in VALID_SOURCES:
@@ -125,7 +132,12 @@ async def create_capture(
 
         whisper = get_whisper_model()
         resolved_stt = stt_model or whisper.model_size
-        transcript = await whisper.transcribe(str(audio_path), language, resolved_stt)
+        transcript = await whisper.transcribe(
+            str(audio_path),
+            language,
+            resolved_stt,
+            initial_prompt=initial_prompt,
+        )
 
         row = DBCapture(
             id=capture_id,
@@ -133,7 +145,8 @@ async def create_capture(
             source=source,
             language=language,
             duration_ms=duration_ms,
-            transcript_raw=transcript,
+            transcript_raw=transcript.text,
+            transcript_segments=serialize_segments(transcript.segments),
             stt_model=resolved_stt,
         )
         db.add(row)
@@ -217,6 +230,7 @@ async def retranscribe_capture(
     stt_model: Optional[str],
     language: Optional[str],
     db: Session,
+    initial_prompt: Optional[str] = None,
 ) -> Optional[CaptureResponse]:
     row = db.query(DBCapture).filter(DBCapture.id == capture_id).first()
     if not row:
@@ -228,12 +242,24 @@ async def retranscribe_capture(
 
     whisper = get_whisper_model()
     resolved_stt = stt_model or whisper.model_size
-    transcript = await whisper.transcribe(str(resolved), language, resolved_stt)
+    transcript = await whisper.transcribe(
+        str(resolved),
+        language,
+        resolved_stt,
+        initial_prompt=initial_prompt,
+    )
 
-    row.transcript_raw = transcript
+    # Replace raw text and its source timeline together only after the complete
+    # Whisper result has been validated. A failed pass leaves the prior row
+    # untouched, including its still-valid refinement.
+    row.transcript_raw = transcript.text
+    row.transcript_segments = serialize_segments(transcript.segments)
     row.stt_model = resolved_stt
-    if language:
-        row.language = language
+    # Business rule: refinement defaults to the language of the latest STT
+    # result. Auto retranscription must clear an older explicit hint; otherwise
+    # a former Chinese capture could force a later English transcript to be
+    # refined in Chinese.
+    row.language = language
     # Refined text is stale after a fresh STT pass — force a re-refine.
     row.transcript_refined = None
     row.llm_model = None

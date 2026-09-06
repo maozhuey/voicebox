@@ -7,6 +7,8 @@ from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
+from .transcription import TranscriptSegment
+
 from .utils.capture_chords import (
     default_push_to_talk_chord,
     default_toggle_to_talk_chord,
@@ -91,6 +93,10 @@ class GenerationRequest(BaseModel):
     """Request model for voice generation."""
 
     profile_id: str
+    target_story_id: Optional[str] = Field(
+        None,
+        description="Story that should receive this generation after synthesis completes.",
+    )
     text: str = Field(..., min_length=1, max_length=50000)
     language: str = Field(default="en", pattern="^(zh|en|ja|ko|de|fr|ru|pt|es|it|he|ar|da|el|fi|hi|ms|nl|no|pl|sv|sw|tr)$")
     seed: Optional[int] = Field(None, ge=0)
@@ -136,6 +142,7 @@ class GenerationResponse(BaseModel):
 
     id: str
     profile_id: str
+    target_story_id: Optional[str] = None
     text: str
     language: str
     audio_path: Optional[str] = None
@@ -175,6 +182,7 @@ class HistoryResponse(BaseModel):
 
     id: str
     profile_id: str
+    target_story_id: Optional[str] = None
     profile_name: str
     text: str
     language: str
@@ -219,6 +227,8 @@ class TranscriptionResponse(BaseModel):
 
     text: str
     duration: float
+    timestamped_text: str
+    segments: List[TranscriptSegment]
 
 
 class RefinementFlagsModel(BaseModel):
@@ -238,6 +248,8 @@ class CaptureResponse(BaseModel):
     language: Optional[str] = None
     duration_ms: Optional[int] = None
     transcript_raw: str
+    transcript_timestamped: Optional[str] = None
+    transcript_segments: List[TranscriptSegment] = Field(default_factory=list)
     transcript_refined: Optional[str] = None
     stt_model: Optional[str] = None
     llm_model: Optional[str] = None
@@ -289,6 +301,7 @@ class CaptureSettingsResponse(BaseModel):
 
     stt_model: str = Field(default="turbo", pattern="^(base|small|medium|large|turbo)$")
     language: str = Field(default="auto")
+    transcription_prompt: str = Field(default="", max_length=2000)
     auto_refine: bool = True
     llm_model: str = Field(default="0.6B", pattern="^(0\\.6B|1\\.7B|4B)$")
     smart_cleanup: bool = True
@@ -313,6 +326,7 @@ class CaptureSettingsUpdate(BaseModel):
 
     stt_model: Optional[str] = Field(default=None, pattern="^(base|small|medium|large|turbo)$")
     language: Optional[str] = None
+    transcription_prompt: Optional[str] = Field(default=None, max_length=2000)
     auto_refine: Optional[bool] = None
     llm_model: Optional[str] = Field(default=None, pattern="^(0\\.6B|1\\.7B|4B)$")
     smart_cleanup: Optional[bool] = None
@@ -331,7 +345,7 @@ class GenerationSettingsResponse(BaseModel):
     max_chunk_chars: int = Field(default=800, ge=100, le=5000)
     crossfade_ms: int = Field(default=50, ge=0, le=500)
     normalize_audio: bool = True
-    autoplay_on_generate: bool = True
+    autoplay_on_generate: bool = False
     natural_reading: bool = False
 
     class Config:

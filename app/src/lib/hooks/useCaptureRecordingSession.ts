@@ -76,6 +76,7 @@ export interface UseCaptureRecordingSessionResult {
   isRefining: boolean;
   startRecording: () => void;
   stopRecording: () => void;
+  restartRecording: () => void;
   toggleRecording: () => void;
   dismissError: () => void;
   uploadFile: (file: File, source: CaptureSource) => void;
@@ -178,7 +179,10 @@ export function useCaptureRecordingSession(
   );
 
   const refineMutation = useMutation({
-    // Empty body — backend resolves flags and model from capture_settings.
+    // Both automatic refinement and the Captures page's manual Refine/Re-refine
+    // button use this endpoint. The backend derives language and punctuation
+    // style from transcript_raw, while this empty body keeps flags/model tied
+    // to the shared capture settings.
     mutationFn: async (captureId: string) => apiClient.refineCapture(captureId, {}),
     onSuccess: (data, captureId) => {
       queryClient.invalidateQueries({ queryKey: ['captures'] });
@@ -236,6 +240,7 @@ export function useCaptureRecordingSession(
     duration,
     startRecording: beginAudioRecording,
     stopRecording,
+    cancelRecording: cancelAudioRecording,
     error: recordError,
   } = useAudioRecording({
     onRecordingComplete: (blob, recordedDuration) => {
@@ -267,12 +272,22 @@ export function useCaptureRecordingSession(
   }, [recordError, showError]);
 
   const startRecording = useCallback(() => {
-    if (isRecording) return;
     clearRestTimer();
     setFrozenElapsedMs(0);
     setPillState('recording');
     beginAudioRecording();
-  }, [isRecording, beginAudioRecording, clearRestTimer]);
+  }, [beginAudioRecording, clearRestTimer]);
+
+  const restartRecording = useCallback(() => {
+    // Business rule: Rust emits restart when the hotkey changes mode during
+    // a hold. Discard the transitional clip, then start a fresh isolated
+    // recording so the boundary audio cannot leak into the uploaded capture.
+    cancelAudioRecording();
+    clearRestTimer();
+    setFrozenElapsedMs(0);
+    setPillState('recording');
+    beginAudioRecording();
+  }, [beginAudioRecording, cancelAudioRecording, clearRestTimer]);
 
   const toggleRecording = useCallback(() => {
     if (isRecording) {
@@ -307,6 +322,7 @@ export function useCaptureRecordingSession(
     isRefining: refineMutation.isPending,
     startRecording,
     stopRecording,
+    restartRecording,
     toggleRecording,
     dismissError,
     uploadFile,

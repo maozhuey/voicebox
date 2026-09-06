@@ -56,6 +56,7 @@
       "exportDropdownLabel": "Exportar captura como",
       "exportAudio": "Audio (WAV)",
       "exportTranscript": "Transcripción (TXT)",
+      "exportTimestampedTranscript": "Transcripción con marcas de tiempo (TXT)",
       "exportMarkdown": "Markdown (MD)",
       "delete": "Eliminar",
       "playAs": "Reproducir como {{name}}",
@@ -91,6 +92,8 @@
       "exportSuccess": "Exportado a {{path}}",
       "exportFailed": "Error al exportar",
       "exportEmpty": "Nada que exportar",
+      "exportTimestampedUnavailable": "No hay transcripción con marcas de tiempo",
+      "exportTimestampedUnavailableDescription": "Vuelve a transcribir esta captura para generar marcas de tiempo precisas.",
       "shortcutNotArmed": "Atajo activado, pero aún no listo",
       "shortcutNotArmedDescription_one": "{{names}} aún necesita descargarse. Abre la pestaña Capturas para empezar.",
       "shortcutNotArmedDescription_other": "{{names}} aún necesitan descargarse. Abre la pestaña Capturas para empezar."

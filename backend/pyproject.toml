@@ -81,3 +81,6 @@ docstring-code-format = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+markers = [
+    "asr_e2e: runs a cached local speech-to-text model against a real audio fixture",
+]

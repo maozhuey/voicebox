@@ -21,6 +21,7 @@ from .base import (
 )
 from ..utils.cache import get_cache_key, get_cached_voice_prompt, cache_voice_prompt
 from ..utils.audio import load_audio
+from ..transcription import TranscriptionResult, build_transcription_result
 
 
 class PyTorchTTSBackend:
@@ -34,7 +35,7 @@ class PyTorchTTSBackend:
 
     def _get_device(self) -> str:
         """Get the best available device."""
-        return get_torch_device(allow_xpu=True, allow_directml=True)
+        return get_torch_device(allow_xpu=True, allow_directml=True, allow_mps=True)
 
     def is_loaded(self) -> bool:
         """Check if model is loaded."""
@@ -111,6 +112,7 @@ class PyTorchTTSBackend:
                     cache_dir=tts_cache_dir,
                     torch_dtype=torch.float32,
                     low_cpu_mem_usage=False,
+                    local_files_only=is_cached,
                 )
             else:
                 self.model = Qwen3TTSModel.from_pretrained(
@@ -118,6 +120,7 @@ class PyTorchTTSBackend:
                     cache_dir=tts_cache_dir,
                     device_map=self.device,
                     torch_dtype=torch.bfloat16,
+                    local_files_only=is_cached,
                 )
 
         self._current_model_size = model_size
@@ -256,7 +259,7 @@ class PyTorchSTTBackend:
 
     def _get_device(self) -> str:
         """Get the best available device."""
-        return get_torch_device(allow_xpu=True, allow_directml=True)
+        return get_torch_device(allow_xpu=True, allow_directml=True, allow_mps=True)
 
     def is_loaded(self) -> bool:
         """Check if model is loaded."""
@@ -295,8 +298,12 @@ class PyTorchSTTBackend:
             model_name = WHISPER_HF_REPOS.get(model_size, f"openai/whisper-{model_size}")
             logger.info("Loading Whisper model %s on %s...", model_size, self.device)
 
-            self.processor = WhisperProcessor.from_pretrained(model_name)
-            self.model = WhisperForConditionalGeneration.from_pretrained(model_name)
+            self.processor = WhisperProcessor.from_pretrained(
+                model_name, local_files_only=is_cached
+            )
+            self.model = WhisperForConditionalGeneration.from_pretrained(
+                model_name, local_files_only=is_cached
+            )
 
         self.model.to(self.device)
         self.model_size = model_size
@@ -319,7 +326,8 @@ class PyTorchSTTBackend:
         audio_path: str,
         language: Optional[str] = None,
         model_size: Optional[str] = None,
-    ) -> str:
+        initial_prompt: Optional[str] = None,
+    ) -> TranscriptionResult:
         """
         Transcribe audio to text.
 
@@ -329,50 +337,84 @@ class PyTorchSTTBackend:
             model_size: Optional model size override
 
         Returns:
-            Transcribed text
+            Raw text and Whisper-native timestamp segments.
         """
         await self.load_model_async(model_size)
 
         def _transcribe_sync():
             """Run synchronous transcription in thread pool."""
             # Load audio
-            audio, _sr = load_audio(audio_path, sample_rate=16000)
+            audio, sample_rate = load_audio(audio_path, sample_rate=16000)
+            audio_duration_ms = round(len(audio) / sample_rate * 1000)
 
             # Inference runs with the process's default HF_HUB_OFFLINE
             # state — forcing offline here (issue #462) broke online users
             # whose `get_decoder_prompt_ids` / tokenizer calls issue
             # legitimate metadata lookups.
             # Process audio
+            is_long_form = len(audio) > 30 * 16000
             inputs = self.processor(
                 audio,
                 sampling_rate=16000,
                 return_tensors="pt",
+                return_attention_mask=True,
+                # Whisper's processor otherwise truncates to its 30-second
+                # feature window without warning. Long-form generation uses
+                # timestamps to slide over every frame instead.
+                truncation=not is_long_form,
             )
             inputs = inputs.to(self.device)
 
-            # Generate transcription
-            # If language is provided, force it; otherwise let Whisper auto-detect
-            generate_kwargs = {}
+            generate_kwargs = {"task": "transcribe"}
             if language:
-                forced_decoder_ids = self.processor.get_decoder_prompt_ids(
-                    language=language,
-                    task="transcribe",
-                )
-                generate_kwargs["forced_decoder_ids"] = forced_decoder_ids
+                generate_kwargs["language"] = language
+            if initial_prompt:
+                generate_kwargs["prompt_ids"] = self.processor.get_prompt_ids(
+                    initial_prompt,
+                    return_tensors="pt",
+                ).to(self.device)
+            # Timestamp segments are returned for every successful transcript.
+            # This also activates Whisper's required sliding-window path for
+            # long audio, so no second model pass is needed.
+            generate_kwargs["return_timestamps"] = True
+            generate_kwargs["return_segments"] = True
 
             with torch.no_grad():
-                predicted_ids = self.model.generate(
-                    inputs["input_features"],
+                generated = self.model.generate(
+                    **inputs,
                     **generate_kwargs,
                 )
 
-            # Decode
+            if not isinstance(generated, dict):
+                raise ValueError("Whisper did not return timestamped segments")
+
             transcription = self.processor.batch_decode(
-                predicted_ids,
+                generated.get("sequences"),
                 skip_special_tokens=True,
             )[0]
+            segment_batches = generated.get("segments") or []
+            raw_segments = []
+            for segment in segment_batches[0] if segment_batches else []:
+                tokens = segment.get("tokens")
+                if tokens is None:
+                    continue
+                segment_text = self.processor.batch_decode(
+                    [tokens],
+                    skip_special_tokens=True,
+                )[0]
+                raw_segments.append(
+                    {
+                        "start": segment.get("start"),
+                        "end": segment.get("end"),
+                        "text": segment_text,
+                    }
+                )
 
-            return transcription.strip()
+            return build_transcription_result(
+                transcription,
+                raw_segments,
+                audio_duration_ms=audio_duration_ms,
+            )
 
         # Run blocking transcription in thread pool
         return await asyncio.to_thread(_transcribe_sync)

@@ -8,7 +8,9 @@ import { apiClient } from '@/lib/api/client';
 import { formatAudioDuration } from '@/lib/utils/audio';
 import { debug } from '@/lib/utils/debug';
 import { usePlatform } from '@/platform/PlatformContext';
+import { useGenerationStore } from '@/stores/generationStore';
 import { usePlayerStore } from '@/stores/playerStore';
+import { useStoryStore } from '@/stores/storyStore';
 
 export function AudioPlayer() {
   const platform = usePlatform();
@@ -17,6 +19,7 @@ export function AudioPlayer() {
     audioUrl,
     audioId,
     profileId,
+    title,
     isPlaying,
     currentTime,
     duration,
@@ -160,6 +163,9 @@ export function AudioPlayer() {
           // Auto-play if the flag is set (story mode advance or explicit play)
           const shouldAutoPlayNow = usePlayerStore.getState().shouldAutoPlay;
           if (shouldAutoPlayNow) {
+            // 全局播放器与故事时间轴共享一个用户可感知的播放会话。
+            // 开始任何全局音频前必须停止时间轴，避免两条人声重叠。
+            useStoryStore.getState().stop();
             usePlayerStore.getState().clearAutoPlayFlag();
             wavesurfer.play().catch((err) => {
               debug.error('Failed to autoplay:', err);
@@ -169,7 +175,10 @@ export function AudioPlayer() {
           }
         });
 
-        wavesurfer.on('play', () => setIsPlaying(true));
+        wavesurfer.on('play', () => {
+          useStoryStore.getState().stop();
+          setIsPlaying(true);
+        });
         wavesurfer.on('pause', () => {
           setIsPlaying(false);
           setCurrentTime(wavesurfer.getCurrentTime());
@@ -243,6 +252,14 @@ export function AudioPlayer() {
   // Destroy WaveSurfer only on unmount
   useEffect(() => {
     return () => {
+      if (isUsingNativePlaybackRef.current) {
+        try {
+          platform.audio.stopPlayback();
+        } catch (err) {
+          debug.error('Error stopping native playback on unmount:', err);
+        }
+        isUsingNativePlaybackRef.current = false;
+      }
       if (wavesurferRef.current) {
         debug.log('Destroying WaveSurfer instance (unmount)');
         try {
@@ -254,7 +271,7 @@ export function AudioPlayer() {
         setWsReady(false);
       }
     };
-  }, []);
+  }, [platform.audio]);
 
   // Load audio when URL changes (reuses the existing WaveSurfer instance)
   useEffect(() => {
@@ -402,6 +419,10 @@ export function AudioPlayer() {
       return;
     }
 
+    if (!isPlaying) {
+      useStoryStore.getState().stop();
+    }
+
     // Check if audio is loaded
     if (duration === 0 && !isLoading) {
       debug.error('Audio not loaded yet');
@@ -499,6 +520,9 @@ export function AudioPlayer() {
   };
 
   const handleClose = () => {
+    // 业务规则：“关闭”代表用户结束当前播放会话。已在队列中的
+    // 生成任务完成后不得再自动拉起播放器。
+    useGenerationStore.getState().suppressAutoPlayForPending();
     // Stop any native playback
     if (isUsingNativePlaybackRef.current && platform.metadata.isTauri) {
       try {
@@ -544,7 +568,13 @@ export function AudioPlayer() {
 
           {/* Waveform */}
           <div className="flex-1 min-w-0 flex flex-col gap-1">
-            <div ref={waveformRef} className="w-full min-h-[80px] select-none" />
+            <div className="flex min-h-5 items-center gap-2 text-sm">
+              <span className="shrink-0 text-xs text-muted-foreground">正在播放</span>
+              <span className="truncate font-medium" title={title ?? '未命名音频'}>
+                {title ?? '未命名音频'}
+              </span>
+            </div>
+            <div ref={waveformRef} className="w-full min-h-[64px] select-none" />
             <Slider
               value={duration > 0 ? [(currentTime / duration) * 100] : [0]}
               onValueChange={handleSeek}

@@ -56,6 +56,7 @@
       "exportDropdownLabel": "Exporter la capture en",
       "exportAudio": "Audio (WAV)",
       "exportTranscript": "Transcription (TXT)",
+      "exportTimestampedTranscript": "Transcription horodatée (TXT)",
       "exportMarkdown": "Markdown (MD)",
       "delete": "Supprimer",
       "playAs": "Lire avec {{name}}",
@@ -91,6 +92,8 @@
       "exportSuccess": "Exporté vers {{path}}",
       "exportFailed": "Échec de l'exportation",
       "exportEmpty": "Rien à exporter",
+      "exportTimestampedUnavailable": "Aucune transcription horodatée",
+      "exportTimestampedUnavailableDescription": "Retranscrivez cette capture pour générer des horodatages précis.",
       "shortcutNotArmed": "Raccourci activé, mais pas encore armé",
       "shortcutNotArmedDescription_one": "{{names}} doit encore être téléchargé. Ouvrez l'onglet Captures pour commencer.",
       "shortcutNotArmedDescription_other": "{{names}} doivent encore être téléchargés. Ouvrez l'onglet Captures pour commencer."

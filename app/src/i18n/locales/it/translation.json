@@ -56,6 +56,7 @@
       "exportDropdownLabel": "Esporta acquisizione come",
       "exportAudio": "Audio (WAV)",
       "exportTranscript": "Trascrizione (TXT)",
+      "exportTimestampedTranscript": "Trascrizione con timestamp (TXT)",
       "exportMarkdown": "Markdown (MD)",
       "delete": "Elimina",
       "playAs": "Riproduci come {{name}}",
@@ -91,6 +92,8 @@
       "exportSuccess": "Esportato in {{path}}",
       "exportFailed": "Esportazione non riuscita",
       "exportEmpty": "Nulla da esportare",
+      "exportTimestampedUnavailable": "Nessuna trascrizione con timestamp",
+      "exportTimestampedUnavailableDescription": "Ritrascrivi questa acquisizione per generare timestamp accurati.",
       "shortcutNotArmed": "Scorciatoia attiva, ma non ancora pronta",
       "shortcutNotArmedDescription_one": "Il download di {{names}} è ancora necessario. Apri la scheda Acquisizioni per iniziare.",
       "shortcutNotArmedDescription_other": "Il download di {{names}} è ancora necessario. Apri la scheda Acquisizioni per iniziare."

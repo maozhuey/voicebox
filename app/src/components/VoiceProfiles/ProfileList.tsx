@@ -19,7 +19,7 @@ export function ProfileList() {
   const selectedProfileId = useUIStore((state) => state.selectedProfileId);
   const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
-  // Scroll to the selected profile after engine/sort changes
+  // Scroll to the selected profile after its selection changes.
   useEffect(() => {
     if (!selectedProfileId) return;
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
@@ -38,7 +38,7 @@ export function ProfileList() {
       cancelAnimationFrame(rafId);
       if (timeoutId) clearTimeout(timeoutId);
     };
-  }, [selectedProfileId, selectedEngine]);
+  }, [selectedProfileId]);
 
   if (isLoading) {
     return null;
@@ -63,12 +63,8 @@ export function ProfileList() {
       ? p.voice_type === 'preset' && p.preset_engine === selectedEngine
       : p.voice_type !== 'preset';
 
-  // Sort so supported profiles come first
-  const sortedProfiles = [...allProfiles].sort(
-    (a, b) => (isSupported(a) ? 0 : 1) - (isSupported(b) ? 0 : 1),
-  );
-
-  const hasUnsupported = sortedProfiles.some((p) => !isSupported(p));
+  // 业务规则：卡片位置以档案接口的返回顺序为准；切换引擎只影响可用状态，不能重排卡片。
+  const hasUnsupported = allProfiles.some((p) => !isSupported(p));
 
   return (
     <div className="flex flex-col">
@@ -86,7 +82,7 @@ export function ProfileList() {
           </Card>
         ) : (
           <div className="flex gap-4 overflow-x-auto p-1 pb-1 lg:grid lg:grid-cols-3 lg:auto-rows-auto lg:overflow-x-visible lg:pb-[150px]">
-            {sortedProfiles.map((profile) => (
+            {allProfiles.map((profile) => (
               <div
                 key={profile.id}
                 className="shrink-0 w-[200px] lg:w-auto lg:shrink"

@@ -107,7 +107,7 @@ export function StoryContent() {
   const lastScrolledItemRef = useRef<string | null>(null);
 
   // Use playback hook
-  useStoryPlayback(story?.items);
+  useStoryPlayback(story?.id, story?.items);
 
   // Sort items by start_time_ms
   const sortedItems = useMemo(() => {

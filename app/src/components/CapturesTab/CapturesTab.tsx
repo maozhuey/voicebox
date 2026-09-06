@@ -12,6 +12,7 @@ import {
   Download,
   FileAudio,
   FileText,
+  ListVideo,
   Loader2,
   Mic,
   Settings2,
@@ -70,6 +71,7 @@ import { useCaptureRecordingSession } from '@/lib/hooks/useCaptureRecordingSessi
 import { useDictationReadiness } from '@/lib/hooks/useDictationReadiness';
 import { useCaptureSettings } from '@/lib/hooks/useSettings';
 import { cn } from '@/lib/utils/cn';
+import { exportTimestampedTranscript } from '@/lib/utils/timestampedTranscript';
 import { formatAbsoluteDate, formatDate } from '@/lib/utils/format';
 import { displayLabelForKey, modifierSideHint } from '@/lib/utils/keyCodes';
 import { useGenerationStore } from '@/stores/generationStore';
@@ -368,6 +370,32 @@ export function CapturesTab() {
       if (!dest) return;
       await writeTextFile(dest, text);
       exportToastSuccess(dest);
+    } catch (err) {
+      exportToastError(err);
+    }
+  };
+
+  const handleExportTimestampedTranscript = async () => {
+    if (!selected) return;
+    // Timestamp export is always tied to Whisper's raw segments, even while
+    // the refined tab is visible. Refined wording may merge, split, or replace
+    // phrases and therefore cannot safely inherit the original boundaries.
+    try {
+      const result = await exportTimestampedTranscript(
+        selected.id,
+        selected.transcript_segments ?? [],
+        save,
+        writeTextFile,
+      );
+      if (result.status === 'missing') {
+        toast({
+          title: t('captures.toast.exportTimestampedUnavailable'),
+          description: t('captures.toast.exportTimestampedUnavailableDescription'),
+          variant: 'destructive',
+        });
+      } else if (result.status === 'exported') {
+        exportToastSuccess(result.path);
+      }
     } catch (err) {
       exportToastError(err);
     }
@@ -808,6 +836,10 @@ export function CapturesTab() {
                   <DropdownMenuItem onClick={handleExportTranscript}>
                     <Captions className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
                     {t('captures.actions.exportTranscript')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleExportTimestampedTranscript}>
+                    <ListVideo className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
+                    {t('captures.actions.exportTimestampedTranscript')}
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={handleExportMarkdown}>
                     <FileText className="h-3.5 w-3.5 mr-2 text-muted-foreground" />

@@ -297,8 +297,8 @@ curl -X POST http://127.0.0.1:17493/speak \
 
 # Transcribe an audio file
 curl -X POST http://127.0.0.1:17493/transcribe \
-  -F "audio=@recording.wav" \
-  -F "model=whisper-turbo"
+  -F "file=@recording.wav" \
+  -F "model=turbo"
 
 # List voice profiles
 curl http://127.0.0.1:17493/profiles

@@ -3,7 +3,8 @@ Chatterbox Turbo TTS backend implementation.
 
 Wraps ChatterboxTurboTTS from chatterbox-tts for fast, English-only
 voice cloning with paralinguistic tag support ([laugh], [cough], etc.).
-Forces CPU on macOS due to known MPS tensor issues.
+It prefers an available accelerator and retries once on CPU when an upstream
+MPS operator is unsupported.
 """
 
 import asyncio
@@ -50,7 +51,9 @@ class ChatterboxTurboTTSBackend:
         self._model_load_lock = asyncio.Lock()
 
     def _get_device(self) -> str:
-        return get_torch_device(force_cpu_on_mac=True, allow_xpu=True)
+        if getattr(self, "_voicebox_force_cpu", False):
+            return "cpu"
+        return get_torch_device(allow_xpu=True, allow_mps=True)
 
     def is_loaded(self) -> bool:
         return self.model is not None
@@ -88,6 +91,7 @@ class ChatterboxTurboTTSBackend:
                 repo_id=CHATTERBOX_TURBO_HF_REPO,
                 token=None,
                 allow_patterns=["*.safetensors", "*.json", "*.txt", "*.pt", "*.model"],
+                local_files_only=is_cached,
             )
 
             if device == "cpu":

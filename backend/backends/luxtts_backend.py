@@ -37,6 +37,8 @@ class LuxTTSBackend:
         self._device = None
 
     def _get_device(self) -> str:
+        if getattr(self, "_voicebox_force_cpu", False):
+            return "cpu"
         return get_torch_device(allow_mps=True, allow_xpu=True)
 
     def is_loaded(self) -> bool:

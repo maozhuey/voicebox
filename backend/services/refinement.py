@@ -10,10 +10,10 @@ of appending one helper below and wiring one toggle on the frontend.
 # ruff: noqa: RUF001 -- Chinese examples intentionally anchor language preservation.
 
 import re
+import unicodedata
 from dataclasses import dataclass
 
 from . import llm as llm_service
-
 
 # A run that repeats this many times gets collapsed before the LLM sees
 # the transcript. Whisper occasionally loops content hundreds of times
@@ -162,6 +162,34 @@ def infer_refinement_language(transcript: str) -> str | None:
     return None
 
 
+def resolve_refinement_language(
+    transcript: str,
+    transcription_language: str | None,
+) -> str | None:
+    """Choose the refinement language from the current transcript first.
+
+    ``Capture.language`` records the STT hint, not a guaranteed detection, and
+    older retranscriptions could leave a stale explicit language on the row.
+    The user-visible business rule is that refinement preserves the language of
+    the text that was actually transcribed. Script detection therefore wins;
+    an incompatible stale CJK hint is discarded so the generic same-language
+    instruction is used instead of translating the transcript.
+    """
+    detected_language = infer_refinement_language(transcript)
+    normalized_hint = (transcription_language or "").split("-", maxsplit=1)[0].lower()
+
+    if detected_language:
+        # Kanji-only Japanese cannot be distinguished from Chinese by script.
+        # An explicit Japanese STT hint remains the best signal in that case.
+        if detected_language == "zh" and normalized_hint == "ja":
+            return "ja"
+        return detected_language
+
+    if normalized_hint in {"zh", "ja", "ko", "auto"}:
+        return None
+    return normalized_hint or None
+
+
 def _build_language_instruction(language: str | None) -> str:
     """Return the language-preservation rule for a refinement request."""
     normalized_language = (language or "").split("-", maxsplit=1)[0].lower()
@@ -226,15 +254,45 @@ When the speaker dictates a punctuation word inside a technical term, convert it
 
 For example, "run npm install then cd into src slash components and edit index dot tsx" yields "Run npm install then cd into src/components and edit index.tsx.\""""
 
-_CHINESE_PUNCTUATION_INSTRUCTION = """Chinese output requirements:
-- You must add punctuation that reflects the speaker's sentence and clause boundaries.
-- If a Chinese transcript contains no punctuation, you must not return it unchanged: add Chinese commas, periods, question marks, or semicolons where appropriate.
-- Preserve uncertain speech-recognition words and dialect terms instead of inventing replacements."""
+_PUNCTUATION_INSTRUCTIONS = {
+    "zh": """Chinese punctuation requirements:
+- Use full-width Chinese punctuation for Chinese prose: ，。！？；：
+- Do not use English commas, periods, question marks, exclamation marks, semicolons, or colons as Chinese sentence punctuation.
+- If the transcript contains no punctuation, you must not return it unchanged; you must add punctuation using Chinese marks at the speaker's sentence and clause boundaries.
+- Preserve punctuation inside technical terms, URLs, versions, decimal numbers, and ranges, such as GenAI.mil, https://example.com, v1.2, 3.14, and 16-18.
+- Preserve uncertain speech-recognition words and dialect terms instead of inventing replacements.""",
+    "en": """English punctuation requirements:
+- Use half-width English punctuation for English prose: , . ! ? ; :
+- Do not use Chinese or Japanese punctuation as English sentence punctuation.
+- Preserve punctuation inside technical terms, URLs, versions, decimal numbers, and ranges.""",
+    "ja": """Japanese punctuation requirements:
+- Use Japanese punctuation for Japanese prose, especially 、。！？
+- Do not use English commas or periods as Japanese sentence punctuation.
+- Preserve punctuation inside technical terms, URLs, versions, decimal numbers, and ranges.""",
+    "ko": """Korean punctuation requirements:
+- Use Korean prose conventions with half-width commas, periods, exclamation marks, question marks, semicolons, and colons.
+- Do not use Chinese or Japanese punctuation as Korean sentence punctuation.
+- Preserve punctuation inside technical terms, URLs, versions, decimal numbers, and ranges.""",
+}
+
+_GENERIC_PUNCTUATION_INSTRUCTION = """Punctuation requirements:
+- Use the punctuation conventions of the source language or of each surrounding language in mixed-language text.
+- Never change punctuation inside technical terms, URLs, versions, decimal numbers, or numeric ranges merely to match prose punctuation."""
+
+
+def _build_punctuation_instruction(language: str | None) -> str:
+    """Return the punctuation convention paired with the resolved language."""
+    normalized_language = (language or "").split("-", maxsplit=1)[0].lower()
+    return _PUNCTUATION_INSTRUCTIONS.get(normalized_language, _GENERIC_PUNCTUATION_INSTRUCTION)
 
 
 def build_refinement_prompt(flags: RefinementFlags, language: str | None = None) -> str:
     """Assemble the system prompt for a given flag combination."""
-    sections = [_BASE_INSTRUCTIONS, _build_language_instruction(language)]
+    sections = [
+        _BASE_INSTRUCTIONS,
+        _build_language_instruction(language),
+        _build_punctuation_instruction(language),
+    ]
 
     if flags.smart_cleanup:
         sections.append(_SMART_CLEANUP)
@@ -242,10 +300,6 @@ def build_refinement_prompt(flags: RefinementFlags, language: str | None = None)
         sections.append(_SELF_CORRECTION)
     if flags.preserve_technical:
         sections.append(_PRESERVE_TECHNICAL)
-    normalized_language = (language or "").split("-", maxsplit=1)[0].lower()
-    if normalized_language == "zh":
-        sections.append(_CHINESE_PUNCTUATION_INSTRUCTION)
-
     if not (flags.smart_cleanup or flags.self_correction or flags.preserve_technical):
         # No refinement toggles enabled — nothing meaningful to do, but the
         # caller still gets a deterministic pass-through prompt.
@@ -354,6 +408,127 @@ _CHINESE_CONNECTIVES = (
     "对对对",
 )
 
+_LONG_TRANSCRIPT_GUARD_CHARS = 80
+_MIN_REFINED_LENGTH_RATIO = 0.82
+_MAX_REFINED_LENGTH_RATIO = 1.25
+
+
+def _replace_contextual_ascii_mark(
+    text: str,
+    mark: str,
+    replacement: str,
+) -> str:
+    """Replace a prose mark without damaging numeric or URL syntax."""
+    characters = list(text)
+    for index, character in enumerate(characters):
+        if character != mark:
+            continue
+        previous = characters[index - 1] if index > 0 else ""
+        following = characters[index + 1] if index + 1 < len(characters) else ""
+        if mark == "," and previous.isdigit() and following.isdigit():
+            continue
+        if mark == ":" and (
+            (previous.isdigit() and following.isdigit()) or following == "/"
+        ):
+            continue
+        characters[index] = replacement
+    return "".join(characters)
+
+
+def normalize_refinement_punctuation(text: str, language: str | None) -> str:
+    """Apply the resolved language's prose punctuation deterministically.
+
+    The LLM receives the same rule in its prompt, but small local models may
+    still mix punctuation styles. This final pass changes punctuation only;
+    technical dots, URL colons, decimal separators, thousands separators, and
+    numeric ranges remain intact.
+    """
+    normalized_language = (language or "").split("-", maxsplit=1)[0].lower()
+    if normalized_language in {"en", "ko"}:
+        return text.translate(str.maketrans("，。！？；：、", ",.!?;:,"))
+    if normalized_language not in {"zh", "ja"}:
+        return text
+
+    comma = "，" if normalized_language == "zh" else "、"
+    cjk_characters = "\u3040-\u30ff\u3400-\u9fff"
+    normalized = _replace_contextual_ascii_mark(text, ",", comma)
+    normalized = _replace_contextual_ascii_mark(normalized, ":", "：")
+    normalized = normalized.replace(";", "；").replace("?", "？").replace("!", "！")
+    normalized = re.sub(rf"\.(?=\s|$|[{cjk_characters}])", "。", normalized)
+    if normalized_language == "ja":
+        normalized = normalized.replace("，", "、")
+    return normalized
+
+
+def _content_signature(text: str) -> str:
+    """Normalize text for preservation checks while ignoring presentation."""
+    normalized = unicodedata.normalize("NFKC", text).casefold()
+    return "".join(character for character in normalized if character.isalnum())
+
+
+def _cjk_ratio(text: str) -> float:
+    content = [character for character in text if character.isalnum()]
+    if not content:
+        return 0.0
+    cjk_count = sum("\u4e00" <= character <= "\u9fff" for character in content)
+    return cjk_count / len(content)
+
+
+def _numeric_tokens(text: str) -> set[str]:
+    return set(re.findall(r"\d+(?:[.-]\d+)*", unicodedata.normalize("NFKC", text)))
+
+
+def _technical_tokens(text: str) -> set[str]:
+    return {
+        token.casefold()
+        for token in re.findall(r"[A-Za-z][A-Za-z0-9_.-]+", text)
+        if len(token) >= 2
+    }
+
+
+def apply_refinement_quality_guard(
+    source: str,
+    candidate: str,
+    language: str | None,
+) -> str:
+    """Reject refinements that visibly destroy a long transcript.
+
+    Small local LLMs occasionally treat repeated-but-intentional sections as
+    duplicates, translate Chinese, or change numbers and technical names. For
+    long captures those operations are data loss, not cleanup. Short utterances
+    stay exempt from length/token checks so intentional self-correction such as
+    "seven, no, six" can still collapse to the final value.
+    """
+    stripped_candidate = candidate.strip()
+    if not stripped_candidate:
+        return add_fallback_chinese_punctuation(source)
+
+    source_signature = _content_signature(source)
+    candidate_signature = _content_signature(stripped_candidate)
+    if not source_signature:
+        return stripped_candidate
+
+    normalized_language = (language or "").split("-", maxsplit=1)[0].lower()
+    if normalized_language == "zh" and _cjk_ratio(source) >= 0.5 and _cjk_ratio(stripped_candidate) < 0.5:
+        return add_fallback_chinese_punctuation(source)
+
+    if len(source_signature) >= _LONG_TRANSCRIPT_GUARD_CHARS:
+        length_ratio = len(candidate_signature) / len(source_signature)
+        missing_numbers = _numeric_tokens(source) - _numeric_tokens(stripped_candidate)
+        missing_terms = _technical_tokens(source) - _technical_tokens(stripped_candidate)
+        if (
+            length_ratio < _MIN_REFINED_LENGTH_RATIO
+            or length_ratio > _MAX_REFINED_LENGTH_RATIO
+            or missing_numbers
+            or missing_terms
+        ):
+            # Business rule: never let optional refinement reduce a usable STT
+            # result. Falling back preserves every recognized word; the Chinese
+            # punctuation helper may still add safe boundaries when needed.
+            return add_fallback_chinese_punctuation(source)
+
+    return stripped_candidate
+
 
 def add_fallback_chinese_punctuation(text: str) -> str:
     """Insert conservative boundaries when a Chinese refinement has none.
@@ -409,7 +584,7 @@ async def refine_transcript(
     # Pre-process before the LLM sees the text — the model shouldn't have
     # to reason about obvious STT garbage (see ``collapse_repetitive_artifacts``).
     cleaned_input = collapse_repetitive_artifacts(transcript)
-    resolved_language = language or infer_refinement_language(cleaned_input)
+    resolved_language = resolve_refinement_language(cleaned_input, language)
 
     system_prompt = build_refinement_prompt(flags, language=resolved_language)
     text = await backend.generate(
@@ -420,7 +595,8 @@ async def refine_transcript(
         model_size=resolved_size,
         examples=build_refinement_examples(resolved_language),
     )
-    refined_text = text.strip()
+    refined_text = apply_refinement_quality_guard(cleaned_input, text, resolved_language)
+    refined_text = normalize_refinement_punctuation(refined_text, resolved_language)
     if resolved_language == "zh":
         # Business rule: Captures are intended for readable downstream text.
         # When the local model ignores punctuation on a long ASR run, preserve

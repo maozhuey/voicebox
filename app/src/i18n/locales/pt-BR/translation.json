@@ -56,6 +56,7 @@
       "exportDropdownLabel": "Exportar captura como",
       "exportAudio": "Áudio (WAV)",
       "exportTranscript": "Transcrição (TXT)",
+      "exportTimestampedTranscript": "Transcrição com timestamps (TXT)",
       "exportMarkdown": "Markdown (MD)",
       "delete": "Excluir",
       "playAs": "Reproduzir como {{name}}",
@@ -91,6 +92,8 @@
       "exportSuccess": "Exportado para {{path}}",
       "exportFailed": "Falha ao exportar",
       "exportEmpty": "Nada para exportar",
+      "exportTimestampedUnavailable": "Sem transcrição com timestamps",
+      "exportTimestampedUnavailableDescription": "Transcreva novamente esta captura para gerar timestamps precisos.",
       "shortcutNotArmed": "Atalho ligado, mas ainda não armado",
       "shortcutNotArmedDescription_one": "{{names}} ainda precisa ser baixado. Abra a aba Capturas para começar.",
       "shortcutNotArmedDescription_other": "{{names}} ainda precisam ser baixados. Abra a aba Capturas para começar."

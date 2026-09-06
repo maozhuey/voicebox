@@ -14,7 +14,6 @@ from backend.routes.generations import (
     prepare_generation_content,
     snapshot_cosyvoice_configuration,
 )
-from backend.services.instruction_summary import COSYVOICE_STYLE_MAX_CHARS
 
 
 def test_profile_task_setting_is_limited_to_500_characters():
@@ -80,7 +79,7 @@ async def test_task_setting_keeps_explicit_custom_voice_instruction():
 
 
 @pytest.mark.asyncio
-async def test_cosyvoice_henan_dialect_is_combined_with_delivery_instruction():
+async def test_cosyvoice_henan_dialect_uses_official_instruction_without_style():
     request = GenerationRequest(
         profile_id="voice-id",
         text="请完整朗读这段文案。",
@@ -95,7 +94,7 @@ async def test_cosyvoice_henan_dialect_is_combined_with_delivery_instruction():
     text, instruct, source = await prepare_generation_content(request, profile)
 
     assert text == request.text
-    assert instruct == "语速稍慢，语气自然。\n请用河南话表达。"
+    assert instruct == "请用河南话表达。"
     assert source == "manual"
 
 
@@ -119,7 +118,7 @@ async def test_cosyvoice_long_character_setting_cannot_replace_spoken_script(mon
     profile = SimpleNamespace(personality=character_setting)
 
     async def summarize(_instruct):
-        return "成年男声，低沉可信，语速稍慢，自然停顿"
+        raise AssertionError("非普通话模式不应混入 AI 风格总结")
 
     monkeypatch.setattr(
         "backend.routes.generations.summarize_cosyvoice_style_instruction",
@@ -129,10 +128,7 @@ async def test_cosyvoice_long_character_setting_cannot_replace_spoken_script(mon
     text, instruct, _ = await prepare_generation_content(request, profile)
 
     assert text == script
-    assert instruct != character_setting
-    assert instruct.endswith("请用河南话表达。")
-    assert "普通话" not in instruct
-    assert len(instruct) <= len("请用河南话表达。\n") + COSYVOICE_STYLE_MAX_CHARS
+    assert instruct == "请用河南话表达。"
 
 
 def test_cosyvoice_selected_dialect_removes_conflicting_language_clauses():
@@ -141,7 +137,7 @@ def test_cosyvoice_selected_dialect_removes_conflicting_language_clauses():
         "普通话发音清楚自然。请用四川话表达。语速稍慢，语气亲切。",
     )
 
-    assert instruct == "语速稍慢，语气亲切。\n请用河南话表达。"
+    assert instruct == "请用河南话表达。"
     assert "普通话" not in instruct
     assert "四川话" not in instruct
 
@@ -178,6 +174,24 @@ async def test_cosyvoice_instruct_mode_defaults_to_mandarin():
     _, instruct, _ = await prepare_generation_content(request, profile)
 
     assert instruct == "请用普通话表达。"
+
+
+@pytest.mark.asyncio
+async def test_cosyvoice_mandarin_keeps_ai_compiled_delivery_style():
+    request = GenerationRequest(
+        profile_id="voice-id",
+        text="请完整朗读这段文案。",
+        language="zh",
+        engine="cosyvoice",
+        cosyvoice_mode="instruct",
+        dialect="mandarin",
+        instruct="语速稍慢，语气自然。",
+    )
+    profile = SimpleNamespace(personality=None)
+
+    _, instruct, _ = await prepare_generation_content(request, profile)
+
+    assert instruct == "语速稍慢，语气自然。\n请用普通话表达。"
 
 
 @pytest.mark.asyncio

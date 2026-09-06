@@ -10,6 +10,25 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+
+def get_model_load_timeout_seconds() -> float:
+    """Return the bounded wait time for one local model load.
+
+    A stalled upstream loader must never leave a generation permanently in
+    ``loading_model``. The environment override is deliberately local-only so
+    packaged and Docker deployments can tune it without an API change.
+    """
+    raw_value = os.environ.get("VOICEBOX_MODEL_LOAD_TIMEOUT_SECONDS", "180")
+    try:
+        value = float(raw_value)
+    except ValueError:
+        logger.warning("Invalid VOICEBOX_MODEL_LOAD_TIMEOUT_SECONDS=%r; using 180", raw_value)
+        return 180.0
+    if value <= 0:
+        logger.warning("Non-positive VOICEBOX_MODEL_LOAD_TIMEOUT_SECONDS=%r; using 180", raw_value)
+        return 180.0
+    return value
+
 # Allow users to override the HuggingFace model download directory.
 # Set VOICEBOX_MODELS_DIR to an absolute path before starting the server.
 # This sets HF_HUB_CACHE so all huggingface_hub downloads go to that path.

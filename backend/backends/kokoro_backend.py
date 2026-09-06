@@ -131,11 +131,11 @@ class KokoroTTSBackend:
         self.model_size = "default"
 
     def _get_device(self) -> str:
-        """Select device. Kokoro supports CUDA and CPU. MPS needs fallback env var."""
-        device = get_torch_device(allow_mps=False)
-        # Kokoro can use MPS but requires PYTORCH_ENABLE_MPS_FALLBACK=1
-        # For now, skip MPS to avoid user confusion — CPU is already realtime
-        return device
+        """Select the fastest available device, with CPU as the retry fallback."""
+        if getattr(self, "_voicebox_force_cpu", False):
+            return "cpu"
+        os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
+        return get_torch_device(allow_mps=True)
 
     @property
     def device(self) -> str:

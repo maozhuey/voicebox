@@ -6,7 +6,6 @@ voice prompt combination, and model loading progress tracking.
 """
 
 import logging
-import platform
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Callable, List, Optional, Tuple
@@ -81,8 +80,7 @@ def get_torch_device(
     *,
     allow_xpu: bool = False,
     allow_directml: bool = False,
-    allow_mps: bool = False,
-    force_cpu_on_mac: bool = False,
+    allow_mps: bool = True,
 ) -> str:
     """
     Detect the best available torch device.
@@ -90,12 +88,8 @@ def get_torch_device(
     Args:
         allow_xpu: Check for Intel XPU (IPEX) support.
         allow_directml: Check for DirectML (Windows) support.
-        allow_mps: Allow MPS (Apple Silicon). If False, MPS falls back to CPU.
-        force_cpu_on_mac: Force CPU on macOS regardless of GPU availability.
+        allow_mps: Allow MPS (Apple Silicon). Defaults to GPU-first behavior.
     """
-    if force_cpu_on_mac and platform.system() == "Darwin":
-        return "cpu"
-
     import torch
 
     if torch.cuda.is_available():

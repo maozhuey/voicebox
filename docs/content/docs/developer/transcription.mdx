@@ -25,7 +25,8 @@ class STTBackend(Protocol):
         audio_path: str,
         language: Optional[str] = None,
         model_size: Optional[str] = None,
-    ) -> str: ...
+        initial_prompt: Optional[str] = None,
+    ) -> TranscriptionResult: ...
     def unload_model(self) -> None: ...
     def is_loaded(self) -> bool: ...
 ```
@@ -101,17 +102,36 @@ Content-Type: multipart/form-data
 
 file: <audio_file>
 language: en         # optional
-model_size: base     # optional (default: "base")
+model: turbo         # optional: base | small | medium | large | turbo
+initial_prompt: <context vocabulary> # optional
 ```
+
+Use `turbo` as the `/transcribe` API value. `whisper-turbo` is the internal
+model-management identifier used for download and status operations, not a
+valid value for this request.
 
 ### Response
 
 ```json
 {
   "text": "Hello, this is a test transcription.",
-  "duration": 3.5
+  "duration": 3.5,
+  "timestamped_text": "[00:00:00.000 --> 00:00:03.500] Hello, this is a test transcription.",
+  "segments": [
+    {
+      "start_ms": 0,
+      "end_ms": 3500,
+      "text": "Hello, this is a test transcription."
+    }
+  ]
 }
 ```
+
+`text` and `duration` remain unchanged for existing clients. Both `large` and
+`turbo` return the same additional `timestamped_text` and `segments` fields on
+successful transcription. `segments` is the machine-readable source timeline;
+`timestamped_text` is its human-readable rendering. Timecodes always describe
+the unrefined Whisper text rather than any later text refinement.
 
 ## Use Cases
 

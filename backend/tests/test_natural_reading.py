@@ -9,7 +9,7 @@ import pytest
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import sessionmaker
 
-from backend.database import Base, Generation as DBGeneration, StoryItem, VoiceProfile
+from backend.database import Base, Generation as DBGeneration, Story, StoryItem, VoiceProfile
 from backend.database.migrations import run_migrations
 from backend.models import GenerationRequest, GenerationSettingsUpdate
 from backend.services import history, stories
@@ -270,6 +270,9 @@ def test_migration_adds_natural_reading_without_enabling_existing_data(tmp_path)
     assert "natural_reading" in {
         column["name"] for column in inspect(engine).get_columns("generation_settings")
     }
+    assert "target_story_id" in {
+        column["name"] for column in inspect(engine).get_columns("generations")
+    }
     with engine.connect() as connection:
         generation_value = connection.execute(
             text("SELECT natural_reading FROM generations WHERE id = 'existing'")
@@ -304,6 +307,33 @@ async def test_history_remembers_natural_reading_for_retry(tmp_path):
     stored = session.query(DBGeneration).filter_by(id=response.id).one()
     assert response.natural_reading is True
     assert stored.natural_reading is True
+    session.close()
+
+
+@pytest.mark.asyncio
+async def test_history_persists_target_story_for_generation_recovery(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'story-target.db'}")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine)()
+    session.add(VoiceProfile(id="voice-id", name="测试声音", language="zh"))
+    session.add(Story(id="story-id", name="测试故事"))
+    session.commit()
+
+    response = await history.create_generation(
+        profile_id="voice-id",
+        text="请完整朗读这段文案。",
+        language="zh",
+        audio_path="",
+        duration=0,
+        seed=None,
+        db=session,
+        status="generating",
+        target_story_id="story-id",
+    )
+
+    stored = session.query(DBGeneration).filter_by(id=response.id).one()
+    assert response.target_story_id == "story-id"
+    assert stored.target_story_id == "story-id"
     session.close()
 
 

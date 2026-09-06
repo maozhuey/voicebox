@@ -160,12 +160,38 @@ async def run_generation(
                 db=bg_db,
             )
 
+        # Persist the finished media first while the task is still marked as
+        # generating. If it originated from a story, attach it before exposing
+        # the completed state so SSE clients can never observe completion while
+        # the story relationship is still missing.
+        completed_generation = await history.update_generation_status(
+            generation_id=generation_id,
+            status="generating",
+            db=bg_db,
+            audio_path=final_path,
+            duration=duration,
+        )
+
+        target_story_id = (
+            completed_generation.target_story_id if completed_generation is not None else None
+        )
+        if target_story_id:
+            from ..models import StoryItemCreate
+            from . import stories
+
+            # add_item_to_story is idempotent for a story/generation pair. This
+            # also makes retries safe if a process exits between attaching the
+            # item and publishing the final completed status.
+            await stories.add_item_to_story(
+                target_story_id,
+                StoryItemCreate(generation_id=generation_id),
+                bg_db,
+            )
+
         await history.update_generation_status(
             generation_id=generation_id,
             status="completed",
             db=bg_db,
-            audio_path=final_path,
-            duration=duration,
         )
 
     except asyncio.CancelledError:

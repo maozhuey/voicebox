@@ -321,9 +321,11 @@ async def _transcribe_file(
             "Voicebox → Settings → Models to download it first."
         )
 
-    text = await whisper.transcribe(str(path), language, model_size)
+    result = await whisper.transcribe(str(path), language, model_size)
     return {
-        "text": text,
+        "text": result.text,
+        "timestamped_text": result.timestamped_text,
+        "segments": [segment.model_dump() for segment in result.segments],
         "duration": duration,
         "language": language,
         "model": model_size,

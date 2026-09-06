@@ -2,8 +2,9 @@
 Chatterbox TTS backend implementation.
 
 Wraps ChatterboxMultilingualTTS from chatterbox-tts for zero-shot
-voice cloning. Supports 23 languages including Hebrew. Forces CPU
-on macOS due to known MPS tensor issues.
+voice cloning. Supports 23 languages including Hebrew. It prefers an
+available accelerator and retries once on CPU when an upstream MPS operator
+is unsupported.
 """
 
 import asyncio
@@ -50,7 +51,9 @@ class ChatterboxTTSBackend:
         self._model_load_lock = asyncio.Lock()
 
     def _get_device(self) -> str:
-        return get_torch_device(force_cpu_on_mac=True, allow_xpu=True)
+        if getattr(self, "_voicebox_force_cpu", False):
+            return "cpu"
+        return get_torch_device(allow_xpu=True, allow_mps=True)
 
     def is_loaded(self) -> bool:
         return self.model is not None

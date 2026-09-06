@@ -56,6 +56,7 @@
       "exportDropdownLabel": "Export capture as",
       "exportAudio": "Audio (WAV)",
       "exportTranscript": "Transcript (TXT)",
+      "exportTimestampedTranscript": "Timestamped transcript (TXT)",
       "exportMarkdown": "Markdown (MD)",
       "delete": "Delete",
       "playAs": "Play as {{name}}",
@@ -91,6 +92,8 @@
       "exportSuccess": "Exported to {{path}}",
       "exportFailed": "Export failed",
       "exportEmpty": "Nothing to export",
+      "exportTimestampedUnavailable": "No timestamped transcript",
+      "exportTimestampedUnavailableDescription": "Re-transcribe this capture to generate accurate timestamps.",
       "shortcutNotArmed": "Shortcut on, but not yet armed",
       "shortcutNotArmedDescription_one": "{{names}} still needs to download. Open the Captures tab to start.",
       "shortcutNotArmedDescription_other": "{{names}} still need to download. Open the Captures tab to start."
@@ -984,6 +987,11 @@
           "ja": "Japanese",
           "zh": "Chinese",
           "hi": "Hindi"
+        },
+        "prompt": {
+          "title": "Vocabulary and context",
+          "description": "Optional. Add names, brands, acronyms, or a short sample in the expected style so Whisper can preserve mixed-language terms and punctuation.",
+          "placeholder": "For example: OpenAI, Mac, Agent, DeepMind, GenAI.mil, Grok, IL5"
         },
         "archive": {
           "title": "Archive audio",

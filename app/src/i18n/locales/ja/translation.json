@@ -56,6 +56,7 @@
       "exportDropdownLabel": "形式を選択",
       "exportAudio": "音声 (WAV)",
       "exportTranscript": "文字起こし (TXT)",
+      "exportTimestampedTranscript": "タイムスタンプ付き文字起こし (TXT)",
       "exportMarkdown": "Markdown (MD)",
       "delete": "削除",
       "playAs": "{{name}} で再生",
@@ -91,6 +92,8 @@
       "exportSuccess": "{{path}} に書き出しました",
       "exportFailed": "書き出しに失敗しました",
       "exportEmpty": "書き出す内容がありません",
+      "exportTimestampedUnavailable": "タイムスタンプ付き文字起こしがありません",
+      "exportTimestampedUnavailableDescription": "正確なタイムスタンプを生成するには、このキャプチャを再文字起こししてください。",
       "shortcutNotArmed": "ショートカットは有効ですが、まだ準備が完了していません",
       "shortcutNotArmedDescription_one": "{{names}} のダウンロードがまだ必要です。キャプチャタブを開いて開始してください。",
       "shortcutNotArmedDescription_other": "{{names}} のダウンロードがまだ必要です。キャプチャタブを開いて開始してください。"

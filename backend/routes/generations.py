@@ -10,7 +10,12 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from .. import config, models
-from ..database import Generation as DBGeneration, VoiceProfile as DBVoiceProfile, get_db
+from ..database import (
+    Generation as DBGeneration,
+    Story as DBStory,
+    VoiceProfile as DBVoiceProfile,
+    get_db,
+)
 from ..services import history, profiles, tts
 from ..services.generation import run_generation
 from ..services.instruction_summary import (
@@ -91,6 +96,12 @@ def _resolve_generation_model_size(
 def build_cosyvoice_instruction(dialect: str, style_instruction: str | None) -> str:
     """Build one non-conflicting, bounded CosyVoice instruction prompt."""
     dialect_instruction = DIALECT_INSTRUCTIONS[dialect]
+    # 业务规则：CosyVoice 0.5B 无法稳定同时执行“方言 + 人物风格”。
+    # 河南话/四川话选择属于用户本次明确指定的硬约束，必须发送官方
+    # 单一指令；混入音色、语速等第二组控制会让方言退化为普通话
+    # 或产生重复音节。普通话模式仍可合并 AI 总结后的朗读风格。
+    if dialect != "mandarin":
+        return dialect_instruction
     style_instruction = sanitize_cosyvoice_style_summary(style_instruction)
     # 业务规则：方言是本次生成的硬约束，必须位于提示末尾并紧邻
     # <|endofprompt|>，避免前面的人物风格提示削弱河南话/四川话要求。
@@ -139,7 +150,9 @@ async def prepare_generation_content(
             # 业务规则：人物设定仍可编辑 500 字，但长设定必须先由本地
             # AI 提炼为“可听的朗读特征”，禁止直接截取或原样传给 CosyVoice。
             # 方言下拉项是硬约束，由后端去除设定中的冲突语句后统一追加。
-            style_instruction = await summarize_cosyvoice_style_instruction(data.instruct)
+            style_instruction = None
+            if data.dialect == "mandarin":
+                style_instruction = await summarize_cosyvoice_style_instruction(data.instruct)
             instruct = build_cosyvoice_instruction(data.dialect, style_instruction)
 
     return data.text, instruct, source
@@ -157,6 +170,11 @@ async def generate_speech(
     profile = await profiles.get_profile(data.profile_id, db)
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
+
+    if data.target_story_id:
+        target_story = db.query(DBStory).filter_by(id=data.target_story_id).first()
+        if not target_story:
+            raise HTTPException(status_code=404, detail="Story not found")
 
     engine = _resolve_generation_engine(data, profile)
     try:
@@ -186,6 +204,7 @@ async def generate_speech(
         dialect=dialect,
         natural_reading=data.natural_reading,
         source=source,
+        target_story_id=data.target_story_id,
     )
 
     task_manager.start_generation(

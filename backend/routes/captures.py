@@ -44,6 +44,7 @@ async def create_capture_endpoint(
         resolved_language = None if saved.language == "auto" else saved.language
     else:
         resolved_language = None if language == "auto" else language
+    resolved_prompt = saved.transcription_prompt.strip() or None
 
     try:
         capture = await captures_service.create_capture(
@@ -52,6 +53,7 @@ async def create_capture_endpoint(
             source=source,
             language=resolved_language,
             stt_model=resolved_stt,
+            initial_prompt=resolved_prompt,
             db=db,
         )
     except ValueError as e:
@@ -218,6 +220,7 @@ async def retranscribe_capture_endpoint(
             capture_id=capture_id,
             stt_model=resolved_stt,
             language=resolved_language,
+            initial_prompt=saved.transcription_prompt.strip() or None,
             db=db,
         )
     except FileNotFoundError as e:

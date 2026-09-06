@@ -12,18 +12,30 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from backend.database import Base
 from backend.services import captures
+from backend.transcription import build_transcription_result
 
 
 class _FakeWhisper:
     """Small STT double that verifies captures receive a canonical WAV."""
 
     model_size = "turbo"
+    initial_prompt: str | None = None
 
-    async def transcribe(self, path: str, language: str | None, model_size: str) -> str:
+    async def transcribe(
+        self,
+        path: str,
+        language: str | None,
+        model_size: str,
+        initial_prompt: str | None = None,
+    ):
         assert Path(path).suffix == ".wav"
         assert language == "zh"
         assert model_size == "turbo"
-        return "视频中的语音"
+        self.initial_prompt = initial_prompt
+        return build_transcription_result(
+            "视频中的语音",
+            [{"start": 0.0, "end": 1.0, "text": "视频中的语音"}],
+        )
 
 
 @pytest.fixture
@@ -50,7 +62,8 @@ async def test_create_capture_extracts_audio_from_mp4_before_transcribing(monkey
     captures_dir.mkdir()
     monkeypatch.setattr(captures.config, "get_captures_dir", lambda: captures_dir)
     monkeypatch.setattr(captures, "load_audio", fake_load_audio)
-    monkeypatch.setattr(captures, "get_whisper_model", lambda: _FakeWhisper())
+    whisper = _FakeWhisper()
+    monkeypatch.setattr(captures, "get_whisper_model", lambda: whisper)
 
     capture = await captures.create_capture(
         audio_bytes=b"minimal mp4 payload",
@@ -59,8 +72,10 @@ async def test_create_capture_extracts_audio_from_mp4_before_transcribing(monkey
         language="zh",
         stt_model="turbo",
         db=capture_db,
+        initial_prompt="OpenAI, DeepMind, GenAI.mil",
     )
 
     assert decoded_paths[0].suffix == ".mp4"
     assert capture.audio_path.endswith(".wav")
     assert capture.transcript_raw == "视频中的语音"
+    assert whisper.initial_prompt == "OpenAI, DeepMind, GenAI.mil"

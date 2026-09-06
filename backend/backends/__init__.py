@@ -13,10 +13,13 @@ and a model config registry that eliminates per-engine dispatch maps.
 from ..utils import hf_offline_patch  # noqa: F401
 
 import threading
+import asyncio
 from dataclasses import dataclass, field
 from typing import Protocol, Optional, Tuple, List
 from typing_extensions import runtime_checkable
 import numpy as np
+
+from ..transcription import TranscriptionResult
 
 DEFAULT_LLM_MAX_TOKENS = 512
 DEFAULT_LLM_TEMPERATURE = 0.7
@@ -146,12 +149,14 @@ class STTBackend(Protocol):
         audio_path: str,
         language: Optional[str] = None,
         model_size: Optional[str] = None,
-    ) -> str:
+        initial_prompt: Optional[str] = None,
+    ) -> TranscriptionResult:
         """
         Transcribe audio to text.
 
         Returns:
-            Transcribed text
+            Raw text and Whisper-native timestamp segments. ``initial_prompt``
+            supplies user-owned domain vocabulary and formatting context.
         """
         ...
 
@@ -547,14 +552,74 @@ def engine_has_model_sizes(engine: str) -> bool:
 
 
 async def load_engine_model(engine: str, model_size: str = "default") -> None:
-    """Load a model for the given engine, handling engines with multiple model sizes."""
+    """Load one engine with a bounded wait and a single CPU recovery attempt."""
+    from .. import config
+    from ..utils.hf_offline_patch import force_offline_if_cached
+
     backend = get_tts_backend_for_engine(engine)
-    if engine in ("qwen", "qwen_custom_voice"):
-        await backend.load_model_async(model_size)
-    elif engine in ("tada", "cosyvoice"):
-        await backend.load_model(model_size)
-    else:
-        await backend.load_model()
+
+    async def load_once() -> None:
+        if engine in ("qwen", "qwen_custom_voice"):
+            await backend.load_model_async(model_size)
+        elif engine in ("tada", "cosyvoice"):
+            await backend.load_model(model_size)
+        else:
+            await backend.load_model()
+
+    def is_cached() -> bool:
+        """Use the engine's own complete-cache check before disabling Hub I/O."""
+        cache_check = getattr(backend, "_is_model_cached", None)
+        return bool(cache_check and cache_check(model_size))
+
+    async def load_with_timeout() -> None:
+        # Business rule: when the complete checkpoint is already local, model
+        # startup must not wait on optional Hugging Face metadata checks. The
+        # scoped guard restores online behaviour after this load finishes.
+        with force_offline_if_cached(is_cached(), f"{engine}-{model_size}"):
+            await asyncio.wait_for(load_once(), timeout=config.get_model_load_timeout_seconds())
+
+    def active_device() -> Optional[str]:
+        return (
+            getattr(backend, "device", None)
+            or getattr(backend, "_device", None)
+            or backend._get_device()
+        )
+
+    try:
+        await load_with_timeout()
+    except asyncio.TimeoutError as exc:
+        # The generation orchestration persists this stable user-facing error
+        # as ``failed`` and releases the serial queue in its finally block.
+        raise ModelLoadTimeoutError("模型加载超时，请重试或检查模型与设备") from exc
+    except Exception as exc:
+        # Business rule: compatible local models try the available accelerator
+        # first. Some upstream PyTorch engines still fail on individual MPS
+        # operators, so retry exactly once on CPU instead of leaving the task
+        # permanently in ``loading_model``.
+        if active_device() in (None, "cpu"):
+            raise ModelLoadError("模型加载失败，请检查模型文件和设备后重试") from exc
+        unload = getattr(backend, "unload_model", None)
+        if callable(unload):
+            unload()
+        backend._voicebox_force_cpu = True
+        if not isinstance(getattr(type(backend), "device", None), property):
+            backend.device = "cpu"
+        if hasattr(backend, "_device"):
+            backend._device = "cpu"
+        try:
+            await load_with_timeout()
+        except asyncio.TimeoutError as retry_exc:
+            raise ModelLoadTimeoutError("模型加载超时，请重试或检查模型与设备") from retry_exc
+        except Exception as retry_exc:
+            raise ModelLoadError("模型加载失败，请检查模型文件和设备后重试") from retry_exc
+
+
+class ModelLoadTimeoutError(RuntimeError):
+    """A model did not become ready within the configured local wait limit."""
+
+
+class ModelLoadError(RuntimeError):
+    """A model could not load on the preferred accelerator or CPU fallback."""
 
 
 async def ensure_model_cached_or_raise(engine: str, model_size: str = "default") -> None:

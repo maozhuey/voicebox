@@ -42,6 +42,7 @@ interface UseGenerationFormOptions {
   onSuccess?: (generationId: string) => void;
   defaultValues?: Partial<GenerationFormValues>;
   getEffectsChain?: () => EffectConfig[] | undefined;
+  getTargetStoryId?: () => string | null;
 }
 
 export function useGenerationForm(options: UseGenerationFormOptions = {}) {
@@ -176,6 +177,9 @@ export function useGenerationForm(options: UseGenerationFormOptions = {}) {
       // This now returns immediately with status="generating"
       const result = await generation.mutateAsync({
         profile_id: selectedProfileId,
+        // 业务规则：故事关联必须随生成请求一起持久化，不能等待
+        // 完成后再依赖浏览器内存补关联，否则刷新会导致音频丢失归属。
+        target_story_id: options.getTargetStoryId?.() || undefined,
         text: scriptText,
         language: data.language,
         seed: data.seed,

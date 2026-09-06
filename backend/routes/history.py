@@ -89,6 +89,7 @@ async def get_generation(
     return models.HistoryResponse(
         id=gen.id,
         profile_id=gen.profile_id,
+        target_story_id=gen.target_story_id,
         profile_name=profile_name,
         text=gen.text,
         language=gen.language,

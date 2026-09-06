@@ -56,6 +56,7 @@
       "exportDropdownLabel": "캡처 내보내기 형식",
       "exportAudio": "오디오 (WAV)",
       "exportTranscript": "대본 (TXT)",
+      "exportTimestampedTranscript": "타임스탬프 대본 (TXT)",
       "exportMarkdown": "마크다운 (MD)",
       "delete": "삭제",
       "playAs": "{{name}}로 재생",
@@ -91,6 +92,8 @@
       "exportSuccess": "{{path}}로 내보내기 완료",
       "exportFailed": "내보내기 실패",
       "exportEmpty": "내보낼 내용이 없습니다",
+      "exportTimestampedUnavailable": "타임스탬프 대본이 없습니다",
+      "exportTimestampedUnavailableDescription": "정확한 타임스탬프를 생성하려면 이 캡처를 다시 전사하세요.",
       "shortcutNotArmed": "단축키가 설정되었지만 아직 준비되지 않았습니다",
       "shortcutNotArmedDescription_one": "{{names}}를 아직 다운로드해야 합니다. 캡처 탭을 열어 시작하세요.",
       "shortcutNotArmedDescription_other": "{{names}}를 아직 다운로드해야 합니다. 캡처 탭을 열어 시작하세요."

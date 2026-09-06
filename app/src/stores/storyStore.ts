@@ -36,7 +36,25 @@ const DEFAULT_TRACK_EDITOR_HEIGHT = 250;
 export const useStoryStore = create<StoryPlaybackState>((set, get) => ({
   // Selection
   selectedStoryId: null,
-  setSelectedStoryId: (id) => set({ selectedStoryId: id }),
+  setSelectedStoryId: (id) => {
+    const state = get();
+    if (state.selectedStoryId !== id && state.playbackStoryId !== id) {
+      // 业务规则：故事选择变更时同步结束旧故事的播放会话。
+      // 不等待视图重渲染，避免旧音源在新故事空态中继续发声。
+      set({
+        selectedStoryId: id,
+        isPlaying: false,
+        currentTimeMs: 0,
+        totalDurationMs: 0,
+        playbackStoryId: null,
+        playbackItems: null,
+        playbackStartContextTime: null,
+        playbackStartStoryTime: null,
+      });
+      return;
+    }
+    set({ selectedStoryId: id });
+  },
   selectedClipId: null,
   setSelectedClipId: (id) => set({ selectedClipId: id }),
 

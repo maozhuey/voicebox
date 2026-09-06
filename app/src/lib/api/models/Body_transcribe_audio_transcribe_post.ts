@@ -5,4 +5,6 @@
 export type Body_transcribe_audio_transcribe_post = {
   file: Blob;
   language?: string | null;
+  model?: string | null;
+  initial_prompt?: string | null;
 };

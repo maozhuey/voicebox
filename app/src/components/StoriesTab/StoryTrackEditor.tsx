@@ -39,6 +39,7 @@ import {
 } from '@/lib/hooks/useStories';
 import { cn } from '@/lib/utils/cn';
 import { useGenerationStore } from '@/stores/generationStore';
+import { usePlayerStore } from '@/stores/playerStore';
 import { useStoryStore } from '@/stores/storyStore';
 
 // Clip waveform component with trim support
@@ -340,6 +341,9 @@ export function StoryTrackEditor({ storyId, items }: StoryTrackEditorProps) {
     if (isCurrentlyPlaying) {
       pause();
     } else {
+      // 业务规则：故事时间轴和全局单条音频播放器不允许同时发声。
+      // 启动时间轴前清空全局播放会话，界面上始终只有一个音源。
+      usePlayerStore.getState().reset();
       play(storyId, sortedItems);
     }
   };

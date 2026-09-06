@@ -66,9 +66,9 @@ class HumeTadaBackend:
         self._model_load_lock = asyncio.Lock()
 
     def _get_device(self) -> str:
-        # Force CPU on macOS — MPS has issues with flow matching
-        # and large vocab lm_head (>65536 output channels)
-        return get_torch_device(force_cpu_on_mac=True, allow_xpu=True)
+        if getattr(self, "_voicebox_force_cpu", False):
+            return "cpu"
+        return get_torch_device(allow_xpu=True, allow_mps=True)
 
     def is_loaded(self) -> bool:
         return self.model is not None
@@ -123,6 +123,7 @@ class HumeTadaBackend:
                 repo_id=TADA_CODEC_REPO,
                 token=None,
                 allow_patterns=["*.safetensors", "*.json", "*.txt", "*.bin"],
+                local_files_only=is_cached,
             )
 
             # Download model weights if not cached
@@ -131,6 +132,7 @@ class HumeTadaBackend:
                 repo_id=repo,
                 token=None,
                 allow_patterns=["*.safetensors", "*.json", "*.txt", "*.bin", "*.model"],
+                local_files_only=is_cached,
             )
 
             # TADA hardcodes "meta-llama/Llama-3.2-1B" as the tokenizer
@@ -143,6 +145,7 @@ class HumeTadaBackend:
                 repo_id="unsloth/Llama-3.2-1B",
                 token=None,
                 allow_patterns=["tokenizer*", "special_tokens*"],
+                local_files_only=is_cached,
             )
 
             # Determine dtype — use bf16 on CUDA/XPU for ~50% memory savings

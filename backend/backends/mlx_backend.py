@@ -20,6 +20,8 @@ ensure_original_qwen_config_cached()
 from . import TTSBackend, STTBackend, LANGUAGE_CODE_TO_NAME, WHISPER_HF_REPOS
 from .base import is_model_cached, combine_voice_prompts as _combine_voice_prompts, model_load_progress
 from ..utils.cache import get_cache_key, get_cached_voice_prompt, cache_voice_prompt
+from ..utils.audio import load_audio
+from ..transcription import TranscriptionResult, build_transcription_result
 
 
 class MLXTTSBackend:
@@ -326,7 +328,8 @@ class MLXSTTBackend:
         audio_path: str,
         language: Optional[str] = None,
         model_size: Optional[str] = None,
-    ) -> str:
+        initial_prompt: Optional[str] = None,
+    ) -> TranscriptionResult:
         """
         Transcribe audio to text.
 
@@ -336,32 +339,46 @@ class MLXSTTBackend:
             model_size: Optional model size override
 
         Returns:
-            Transcribed text
+            Raw text and Whisper-native timestamp segments.
         """
         await self.load_model_async(model_size)
 
         def _transcribe_sync():
             """Run synchronous transcription in thread pool."""
+            audio, sample_rate = load_audio(audio_path, sample_rate=16000)
+            audio_duration_ms = round(len(audio) / sample_rate * 1000)
+
             # MLX Whisper transcription using generate method
             # The generate method accepts audio path directly
-            decode_options = {}
+            decode_options = {"task": "transcribe"}
             if language:
                 decode_options["language"] = language
+            if initial_prompt:
+                # Business rule: mixed Chinese/English dictation often
+                # contains names Whisper cannot infer from acoustics alone.
+                # The saved prompt is user-owned vocabulary/context, not text
+                # invented by Voicebox, and must be passed unchanged.
+                decode_options["initial_prompt"] = initial_prompt
 
             # Inference runs with the process's default HF_HUB_OFFLINE
             # state — see the comment in MLXTTSBackend.generate for the
             # regression this revert fixes (issue #462).
             result = self.model.generate(str(audio_path), **decode_options)
 
-            # Extract text from result
-            if isinstance(result, str):
-                return result.strip()
-            elif isinstance(result, dict):
-                return result.get("text", "").strip()
-            elif hasattr(result, "text"):
-                return result.text.strip()
+            # Preserve Whisper's own segment boundaries from this inference
+            # pass. Reconstructing times from character positions would create
+            # plausible-looking but false source evidence.
+            if isinstance(result, dict):
+                text = result.get("text", "")
+                segments = result.get("segments", [])
             else:
-                return str(result).strip()
+                text = getattr(result, "text", "")
+                segments = getattr(result, "segments", [])
+            return build_transcription_result(
+                text,
+                segments,
+                audio_duration_ms=audio_duration_ms,
+            )
 
         # Run blocking transcription in thread pool
         return await asyncio.to_thread(_transcribe_sync)

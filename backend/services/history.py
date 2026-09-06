@@ -69,6 +69,7 @@ async def create_generation(
     dialect: Optional[str] = None,
     natural_reading: bool = False,
     source: str = "manual",
+    target_story_id: Optional[str] = None,
 ) -> GenerationResponse:
     """
     Create a new generation history entry.
@@ -93,6 +94,7 @@ async def create_generation(
         source: Origin marker stored on the row. ``"manual"`` for regular
             /generate calls; ``"personality_reading"`` when task-setting
             reading was selected. The latter always retains the original text.
+        target_story_id: Story that receives the audio after successful synthesis.
 
     Returns:
         Created generation entry
@@ -113,6 +115,7 @@ async def create_generation(
         natural_reading=natural_reading,
         status=status,
         source=source,
+        target_story_id=target_story_id,
         created_at=datetime.utcnow(),
     )
 
@@ -227,6 +230,7 @@ async def list_generations(
         items.append(HistoryResponse(
             id=generation.id,
             profile_id=generation.profile_id,
+            target_story_id=generation.target_story_id,
             profile_name=profile_name,
             text=generation.text,
             language=generation.language,
