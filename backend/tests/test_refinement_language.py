@@ -46,6 +46,9 @@ async def test_refine_transcript_builds_prompt_from_current_transcript_language(
     class FakeBackend:
         model_size = "1.7B"
 
+        async def load_model(self, _model_size):
+            return None
+
         async def generate(self, **kwargs):
             calls.append(kwargs)
             return transcript
@@ -166,6 +169,9 @@ async def test_refine_transcript_falls_back_when_chinese_model_omits_punctuation
     class FakeBackend:
         model_size = "1.7B"
 
+        async def load_model(self, _model_size):
+            return None
+
         async def generate(self, **_kwargs):
             return "用户点按钮之后给我的接口发请求把数据带上就行如果这个事件有用我们再监听没用就放过就行了"
 
@@ -187,6 +193,9 @@ async def test_refine_transcript_uses_chinese_constraint_and_example(monkeypatch
 
     class FakeBackend:
         model_size = "1.7B"
+
+        async def load_model(self, _model_size):
+            return None
 
         async def generate(self, **kwargs):
             calls.append(kwargs)
@@ -292,6 +301,9 @@ async def test_manual_refine_uses_raw_language_and_matching_punctuation(monkeypa
     class FakeBackend:
         model_size = "1.7B"
 
+        async def load_model(self, _model_size):
+            return None
+
         async def generate(self, **kwargs):
             calls.append(kwargs)
             return "请保留 OpenAI,然后继续!"
@@ -309,6 +321,83 @@ async def test_manual_refine_uses_raw_language_and_matching_punctuation(monkeypa
     assert result.transcript_refined == "请保留 OpenAI，然后继续！"
     assert "transcript language is Chinese" in calls[0]["system"]
     assert "full-width Chinese punctuation" in calls[0]["system"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stage", ["model_load", "llm_generate"])
+async def test_refine_transcript_tags_model_failures_without_exposing_original_error(monkeypatch, stage):
+    """A failed optional refinement must be diagnosable without leaking text."""
+
+    class FakeBackend:
+        model_size = "1.7B"
+
+        async def load_model(self, _model_size):
+            if stage == "model_load":
+                raise RuntimeError("sensitive transcript /private/capture.wav")
+
+        async def generate(self, **_kwargs):
+            if stage == "llm_generate":
+                raise RuntimeError("sensitive transcript /private/capture.wav")
+            return "不会执行到这里"
+
+    monkeypatch.setattr(refinement.llm_service, "get_llm_model", lambda: FakeBackend())
+
+    with pytest.raises(refinement.CaptureRefinementError) as error:
+        await refinement.refine_transcript("敏感听写内容", refinement.RefinementFlags())
+
+    assert error.value.stage == stage
+    assert "sensitive transcript" not in str(error.value)
+    assert "/private" not in str(error.value)
+
+
+@pytest.mark.asyncio
+async def test_refine_capture_rolls_back_failed_persistence(monkeypatch):
+    """A manual re-refine cannot overwrite the previously usable result."""
+    row = SimpleNamespace(
+        id="capture-persist",
+        transcript_raw="原始转录",
+        language="zh",
+        transcript_refined="已有精修",
+        llm_model="0.6B",
+        refinement_flags='{"smart_cleanup": false}',
+    )
+
+    class FakeQuery:
+        def filter(self, *_args):
+            return self
+
+        def first(self):
+            return row
+
+    class FailingDb:
+        rolled_back = False
+
+        def query(self, _model):
+            return FakeQuery()
+
+        def commit(self):
+            raise RuntimeError("write failed for sensitive transcript")
+
+        def refresh(self, _row):
+            return None
+
+        def rollback(self):
+            self.rolled_back = True
+
+    async def fake_refine(*_args, **_kwargs):
+        return "新的精修", "1.7B"
+
+    db = FailingDb()
+    monkeypatch.setattr(captures, "refine_transcript", fake_refine)
+
+    with pytest.raises(refinement.CaptureRefinementError) as error:
+        await captures.refine_capture("capture-persist", refinement.RefinementFlags(), "1.7B", db)
+
+    assert error.value.stage == "persist"
+    assert db.rolled_back is True
+    assert row.transcript_refined == "已有精修"
+    assert row.llm_model == "0.6B"
+    assert row.refinement_flags == '{"smart_cleanup": false}'
 
 
 @pytest.mark.asyncio

@@ -13,6 +13,7 @@ from starlette.datastructures import UploadFile
 from backend.database import Base
 from backend.routes import captures as capture_routes
 from backend.services import capture_diagnostics, captures
+from backend.services.refinement import CaptureRefinementError
 
 
 class _FailingWhisper:
@@ -82,3 +83,52 @@ async def test_internal_transcription_error_returns_safe_diagnostic(monkeypatch,
     assert "safe.wav" not in json.dumps(entry)
     assert "/private" not in json.dumps(entry)
     assert list(captures_dir.iterdir()) == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stage", ["model_load", "llm_generate", "persist"])
+async def test_refinement_error_returns_safe_stage_diagnostic(monkeypatch, tmp_path, capture_db, stage):
+    """A successful capture remains private and recoverable when refine fails."""
+    row = captures.DBCapture(
+        id=f"capture-{stage}",
+        audio_path="captures/private-audio.wav",
+        source="dictation",
+        transcript_raw="绝不能写入日志的听写正文",
+        stt_model="turbo",
+    )
+    capture_db.add(row)
+    capture_db.commit()
+    monkeypatch.setattr(capture_diagnostics.config, "get_data_dir", lambda: tmp_path)
+    monkeypatch.setattr(capture_routes.settings_service, "get_capture_settings", lambda _db: type("Settings", (), {
+        "llm_model": "1.7B",
+        "smart_cleanup": True,
+        "self_correction": True,
+        "preserve_technical": True,
+    })())
+
+    async def fail_refinement(**_kwargs):
+        try:
+            raise RuntimeError("/private/private-audio.wav 绝不能写入日志的听写正文")
+        except RuntimeError as cause:
+            raise CaptureRefinementError(stage) from cause
+
+    monkeypatch.setattr(capture_routes.captures_service, "refine_capture", fail_refinement)
+
+    with pytest.raises(HTTPException) as error:
+        await capture_routes.refine_capture_endpoint(
+            row.id,
+            capture_routes.models.CaptureRefineRequest(),
+            capture_db,
+        )
+
+    assert error.value.status_code == 500
+    assert error.value.detail.startswith("CAPTURE_REFINEMENT_DIAGNOSTIC:cap-")
+    entry = json.loads((tmp_path / "logs" / "capture-diagnostics.jsonl").read_text().strip())
+    assert entry["kind"] == "refinement"
+    assert entry["stage"] == stage
+    assert entry["source"] == "dictation"
+    assert entry["model_size"] == "1.7B"
+    serialized = json.dumps(entry, ensure_ascii=False)
+    assert "绝不能写入日志" not in serialized
+    assert "/private" not in serialized
+    assert "private-audio.wav" not in serialized

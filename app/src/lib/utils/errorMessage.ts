@@ -38,6 +38,10 @@ export function toChineseErrorMessage(error: unknown, fallback = '操作失败�
     const diagnosticId = raw.match(/CAPTURE_DIAGNOSTIC:([A-Za-z0-9-]+)/)?.[1];
     return `听写失败，请重试。诊断编号：${diagnosticId}`;
   }
+  if (/CAPTURE_REFINEMENT_DIAGNOSTIC:([A-Za-z0-9-]+)/.test(raw)) {
+    const diagnosticId = raw.match(/CAPTURE_REFINEMENT_DIAGNOSTIC:([A-Za-z0-9-]+)/)?.[1];
+    return `精修失败，请重试。诊断编号：${diagnosticId}`;
+  }
   if (/Could not decode .*audio/i.test(raw)) {
     return '录音损坏或格式不受支持，请重新录制后再试。';
   }

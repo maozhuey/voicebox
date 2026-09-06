@@ -15,6 +15,20 @@ from dataclasses import dataclass
 
 from . import llm as llm_service
 
+
+class CaptureRefinementError(RuntimeError):
+    """A safe, stage-tagged failure from the optional capture refinement pass.
+
+    The original exception remains available as ``__cause__`` for local logs,
+    but the public message deliberately contains no model output, transcript,
+    path, or provider detail. The route converts the fixed stage into a local,
+    privacy-safe diagnostic record.
+    """
+
+    def __init__(self, stage: str):
+        self.stage = stage
+        super().__init__(f"Capture refinement failed during {stage}")
+
 # A run that repeats this many times gets collapsed before the LLM sees
 # the transcript. Whisper occasionally loops content hundreds of times
 # when audio trails off — "URL URL URL…" (single word), "thanks for
@@ -587,14 +601,26 @@ async def refine_transcript(
     resolved_language = resolve_refinement_language(cleaned_input, language)
 
     system_prompt = build_refinement_prompt(flags, language=resolved_language)
-    text = await backend.generate(
-        prompt=cleaned_input,
-        system=system_prompt,
-        max_tokens=2048,
-        temperature=0.2,
-        model_size=resolved_size,
-        examples=build_refinement_examples(resolved_language),
-    )
+    try:
+        # Capture refinement is optional, but its model load is the first
+        # failure boundary after a successful Whisper transcript. Keeping it
+        # separate lets the UI preserve that transcript and report whether
+        # Qwen could not load rather than wrongly reporting a failed dictation.
+        await backend.load_model(resolved_size)
+    except Exception as error:
+        raise CaptureRefinementError("model_load") from error
+
+    try:
+        text = await backend.generate(
+            prompt=cleaned_input,
+            system=system_prompt,
+            max_tokens=2048,
+            temperature=0.2,
+            model_size=resolved_size,
+            examples=build_refinement_examples(resolved_language),
+        )
+    except Exception as error:
+        raise CaptureRefinementError("llm_generate") from error
     refined_text = apply_refinement_quality_guard(cleaned_input, text, resolved_language)
     refined_text = normalize_refinement_punctuation(refined_text, resolved_language)
     if resolved_language == "zh":

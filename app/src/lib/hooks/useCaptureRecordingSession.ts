@@ -5,6 +5,10 @@ import type { PillState } from '@/components/CapturePill/CapturePill';
 import { apiClient } from '@/lib/api/client';
 import type { CaptureListResponse, CaptureResponse, CaptureSource } from '@/lib/api/types';
 import { useAudioRecording } from '@/lib/hooks/useAudioRecording';
+import {
+  getCaptureRefinementFailureRecovery,
+  type CaptureRefinementMode,
+} from '@/lib/utils/captureRefinementRecovery';
 
 /**
  * Broadcast to sibling Tauri webviews that the captures list has changed.
@@ -83,6 +87,13 @@ export interface UseCaptureRecordingSessionResult {
   refine: (captureId: string) => void;
 }
 
+interface RefineCaptureRequest {
+  captureId: string;
+  mode: CaptureRefinementMode;
+  capture?: CaptureResponse;
+  allowAutoPaste?: boolean;
+}
+
 /**
  * Owns the full record → transcribe → refine → rest lifecycle behind the
  * capture pill. The pill component and the Dictate/Stop button are the only
@@ -115,11 +126,6 @@ export function useCaptureRecordingSession(
 
   const onFinalTextRef = useRef(options.onFinalText);
   onFinalTextRef.current = options.onFinalText;
-
-  // Snapshot of ``allow_auto_paste`` from the capture-create response —
-  // held so the refine onSuccess (which only sees the plain CaptureResponse)
-  // can still pass the original setting through to onFinalText.
-  const allowAutoPasteRef = useRef<boolean>(true);
 
   const clearRestTimer = useCallback(() => {
     if (restTimerRef.current !== null) {
@@ -183,18 +189,38 @@ export function useCaptureRecordingSession(
     // button use this endpoint. The backend derives language and punctuation
     // style from transcript_raw, while this empty body keeps flags/model tied
     // to the shared capture settings.
-    mutationFn: async (captureId: string) => apiClient.refineCapture(captureId, {}),
-    onSuccess: (data, captureId) => {
+    mutationFn: async ({ captureId }: RefineCaptureRequest) => apiClient.refineCapture(captureId, {}),
+    onSuccess: (data, request) => {
       queryClient.invalidateQueries({ queryKey: ['captures'] });
-      broadcastUpdated(captureId);
+      broadcastUpdated(request.captureId);
       if (pillStateRef.current === 'refining') scheduleHidePill();
-      const finalText = data.transcript_refined ?? data.transcript_raw;
-      if (finalText) {
-        onFinalTextRef.current?.(finalText, data, allowAutoPasteRef.current);
+      if (request.mode === 'automatic') {
+        const finalText = data.transcript_refined ?? data.transcript_raw;
+        if (finalText) {
+          onFinalTextRef.current?.(finalText, data, Boolean(request.allowAutoPaste));
+        }
       }
     },
-    onError: (err: Error) => {
-      showError(err.message || '文本优化失败');
+    onError: (err: Error, request) => {
+      const recovery = getCaptureRefinementFailureRecovery({
+        mode: request.mode,
+        capture: request.capture,
+        error: err,
+      });
+      if (request.mode === 'automatic' && request.capture) {
+        // The row was saved by POST /captures before refinement began. Keep
+        // sibling windows in sync and deliver that known-good raw text once.
+        queryClient.invalidateQueries({ queryKey: ['captures'] });
+        broadcastUpdated(request.captureId);
+        if (recovery.deliverRawTranscript) {
+          onFinalTextRef.current?.(
+            request.capture.transcript_raw,
+            request.capture,
+            Boolean(request.allowAutoPaste),
+          );
+        }
+      }
+      showError(recovery.message);
     },
   });
 
@@ -210,10 +236,14 @@ export function useCaptureRecordingSession(
       queryClient.invalidateQueries({ queryKey: ['captures'] });
       broadcastCreated(capture);
       onCaptureCreatedRef.current?.(capture);
-      allowAutoPasteRef.current = capture.allow_auto_paste;
       if (capture.auto_refine) {
         setPillState('refining');
-        refineMutation.mutate(capture.id);
+        refineMutation.mutate({
+          captureId: capture.id,
+          mode: 'automatic',
+          capture,
+          allowAutoPaste: capture.allow_auto_paste,
+        });
       } else {
         if (pillStateRef.current === 'transcribing') scheduleHidePill();
         if (capture.transcript_raw) {
@@ -306,7 +336,7 @@ export function useCaptureRecordingSession(
 
   const refine = useCallback(
     (captureId: string) => {
-      refineMutation.mutate(captureId);
+      refineMutation.mutate({ captureId, mode: 'manual' });
     },
     [refineMutation],
   );

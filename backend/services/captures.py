@@ -21,7 +21,7 @@ from .. import config
 from ..database import Capture as DBCapture
 from ..models import CaptureResponse, RefinementFlagsModel
 from ..utils.audio import load_audio
-from .refinement import RefinementFlags, refine_transcript
+from .refinement import CaptureRefinementError, RefinementFlags, refine_transcript
 from .transcribe import get_whisper_model
 from ..transcription import format_timestamped_transcript, parse_stored_segments, serialize_segments
 
@@ -227,11 +227,26 @@ async def refine_capture(
         language=row.language,
     )
 
-    row.transcript_refined = refined
-    row.llm_model = llm_size
-    row.refinement_flags = json.dumps(flags.to_dict())
-    db.commit()
-    db.refresh(row)
+    previous_values = (
+        row.transcript_refined,
+        row.llm_model,
+        row.refinement_flags,
+    )
+    try:
+        # Do not expose a partial refinement state. The old values remain the
+        # user-visible source of truth until the single transaction commits.
+        row.transcript_refined = refined
+        row.llm_model = llm_size
+        row.refinement_flags = json.dumps(flags.to_dict())
+        db.commit()
+        db.refresh(row)
+    except Exception as error:
+        db.rollback()
+        # SQLAlchemy rollback restores persisted state in normal operation;
+        # assign the snapshot too so callers using an in-memory session or a
+        # test double never observe the failed attempt as a completed refine.
+        row.transcript_refined, row.llm_model, row.refinement_flags = previous_values
+        raise CaptureRefinementError("persist") from error
     return _to_response(row)
 
 

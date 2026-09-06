@@ -11,12 +11,15 @@ from pathlib import Path
 from .. import config
 
 _MAX_LOG_BYTES = 1_000_000
+
+
 def record_capture_failure(*, stage: str, source: str, filename: str, model_size: str, error: Exception) -> str:
     """Persist a minimal local record without retaining audio or transcript content."""
     diagnostic_id = f"cap-{uuid.uuid4().hex[:10]}"
     entry = {
         "id": diagnostic_id,
         "at": datetime.now(timezone.utc).isoformat(),
+        "kind": "transcription",
         "stage": stage,
         "source": source,
         "extension": Path(filename).suffix.lower() or "unknown",
@@ -27,6 +30,35 @@ def record_capture_failure(*, stage: str, source: str, filename: str, model_size
         # filename, a filesystem path, or user-spoken content.
         "summary": _sanitize_summary(str(error)),
     }
+    _append_entry(entry)
+    return diagnostic_id
+
+
+def record_capture_refinement_failure(
+    *, stage: str, source: str, model_size: str, error: Exception
+) -> str:
+    """Record optional capture refinement failures without storing user content.
+
+    Refinement already operates on a persisted capture, so filenames and audio
+    paths add no diagnostic value and must not be copied into the local log.
+    """
+    diagnostic_id = f"cap-{uuid.uuid4().hex[:10]}"
+    entry = {
+        "id": diagnostic_id,
+        "at": datetime.now(timezone.utc).isoformat(),
+        "kind": "refinement",
+        "stage": stage,
+        "source": source,
+        "model_size": model_size,
+        "error_type": type(error).__name__,
+        "summary": _sanitize_summary(str(error)),
+    }
+    _append_entry(entry)
+    return diagnostic_id
+
+
+def _append_entry(entry: dict) -> None:
+    """Append a diagnostic best-effort; logging must never alter request outcome."""
     try:
         log_dir = config.get_data_dir() / "logs"
         log_dir.mkdir(parents=True, exist_ok=True)
@@ -39,7 +71,6 @@ def record_capture_failure(*, stage: str, source: str, filename: str, model_size
     except OSError:
         # Diagnostics must not turn a recoverable request failure into a crash.
         pass
-    return diagnostic_id
 
 
 def _sanitize_summary(message: str) -> str:

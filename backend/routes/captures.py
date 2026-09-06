@@ -11,9 +11,12 @@ from ..backends import get_llm_model_configs, get_stt_model_configs
 from ..backends.base import is_model_cached
 from ..database import Capture as DBCapture, get_db
 from ..services import captures as captures_service
-from ..services.capture_diagnostics import record_capture_failure
+from ..services.capture_diagnostics import (
+    record_capture_failure,
+    record_capture_refinement_failure,
+)
 from ..services import settings as settings_service
-from ..services.refinement import RefinementFlags
+from ..services.refinement import CaptureRefinementError, RefinementFlags
 
 logger = logging.getLogger(__name__)
 
@@ -156,9 +159,37 @@ async def refine_capture_endpoint(
             model_size=resolved_model,
             db=db,
         )
-    except Exception as e:
-        logger.exception("Refinement failed for capture %s", capture_id)
-        raise HTTPException(status_code=500, detail=str(e))
+    except CaptureRefinementError as error:
+        # Refinement starts only after a capture was successfully committed.
+        # Preserve that success in the UI, while recording only safe metadata
+        # for the optional follow-up failure (never transcript or audio data).
+        row = db.query(DBCapture).filter(DBCapture.id == capture_id).first()
+        diagnostic_id = record_capture_refinement_failure(
+            stage=error.stage,
+            source=row.source if row else "unknown",
+            model_size=resolved_model,
+            error=error.__cause__ or error,
+        )
+        logger.exception("Refinement failed for capture %s at %s", capture_id, error.stage)
+        raise HTTPException(
+            status_code=500,
+            detail=f"CAPTURE_REFINEMENT_DIAGNOSTIC:{diagnostic_id}",
+        )
+    except Exception as error:
+        # Never surface unreviewed backend text in an HTTP response. This
+        # fallback keeps rare route-level errors equally safe and traceable.
+        row = db.query(DBCapture).filter(DBCapture.id == capture_id).first()
+        diagnostic_id = record_capture_refinement_failure(
+            stage="internal",
+            source=row.source if row else "unknown",
+            model_size=resolved_model,
+            error=error,
+        )
+        logger.exception("Unexpected refinement failure for capture %s", capture_id)
+        raise HTTPException(
+            status_code=500,
+            detail=f"CAPTURE_REFINEMENT_DIAGNOSTIC:{diagnostic_id}",
+        )
 
     if not capture:
         raise HTTPException(status_code=404, detail="Capture not found")
