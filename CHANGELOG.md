@@ -7,6 +7,43 @@
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-09-07
+
+**A reliability release for local generation and dictation.** Voicebox now
+keeps one stalled TTS request from leaving the history permanently active,
+reports actionable failure context for capture and generation, and makes
+profile/model compatibility explicit before a request reaches the backend.
+
+### Generation reliability
+
+- **CosyVoice runs in a bounded worker with phase-level diagnostics.** Each
+  semantic segment is independently terminable; progress records identify
+  preprocessing, LLM decoding, Flow, or vocoder work so a stalled inference
+  cannot hold the queue forever. Engine hand-off releases inactive model and
+  accelerator caches while preserving already-running tasks.
+- **Interrupted generation records recover on app startup.** The queue now
+  distinguishes work owned by the live process from records left by a prior
+  shutdown, marks only true orphans as failed, and restarts its worker after
+  an unexpected exit.
+- **Voice/model selections are validated as a pair.** Switching profiles or
+  engines updates the request to a supported combination, preventing invalid
+  CustomVoice and cloned-voice requests from reaching synthesis as opaque
+  client errors.
+- **Natural reading keeps author-supplied semantic boundaries.** CosyVoice
+  no longer forces a character-count split inside an unpunctuated sentence.
+
+### Capture and desktop workflows
+
+- **Capture failures carry a diagnostic identifier and clearer audio-format
+  guidance.** Invalid recordings are rejected with a recoverable response
+  instead of surfacing as an unexplained server error.
+- **MLX and model-loading paths are more resilient on Apple Silicon.**
+  Runtime coordination prevents unsafe model overlap and reports load errors
+  without losing the surrounding task state.
+- **The floating generation form keeps compatible selections visible and
+  usable**, including after a user switches from a cloned voice to a preset
+  CustomVoice model.
+
 ### Linux
 
 - **ROCm setup works on Linux AMD systems.** Docker ROCm builds now keep PyTorch
@@ -751,6 +788,8 @@ The first public release of Voicebox — an open-source voice synthesis studio p
 
 Tauri v2, React, TypeScript, Tailwind CSS, FastAPI, Qwen3-TTS, Whisper, SQLite
 
+[Unreleased]: https://github.com/jamiepine/voicebox/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/jamiepine/voicebox/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/jamiepine/voicebox/compare/v0.4.5...v0.5.0
 [0.4.5]: https://github.com/jamiepine/voicebox/compare/v0.4.4...v0.4.5
 [0.4.4]: https://github.com/jamiepine/voicebox/compare/v0.4.3...v0.4.4

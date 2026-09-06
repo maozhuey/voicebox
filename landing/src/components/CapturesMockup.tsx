@@ -73,7 +73,7 @@ function Sidebar() {
       </div>
 
       {/* Version */}
-      <div className="mt-auto text-[8px] text-muted-foreground/40">v0.5.0</div>
+      <div className="mt-auto text-[8px] text-muted-foreground/40">v0.5.1</div>
     </div>
   );
 }

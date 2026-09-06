@@ -1,6 +1,6 @@
 # Voicebox Project Status & Roadmap
 
-> Last updated: 2026-07-02 | Current version: **v0.5.0** | 402 open issues | 88 open PRs | 1.3M downloads · 34.8k stars
+> Last updated: 2026-09-07 | Current version: **v0.5.1** | 402 open issues | 88 open PRs | 1.3M downloads · 34.8k stars
 
 ---
 
