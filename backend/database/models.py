@@ -89,6 +89,11 @@ class Generation(Base):
     # the chunk currently being processed, not merely completed work.
     progress_current = Column(Integer, nullable=True)
     progress_total = Column(Integer, nullable=True)
+    # Safe diagnostic metadata for CosyVoice only.  Never store prompts,
+    # reference paths or exception details here: this record is returned by
+    # the history API and is intended to reveal only the stalled pipeline step.
+    cosyvoice_phase = Column(String, nullable=True)
+    cosyvoice_phase_durations = Column(JSON, nullable=True)
     error = Column(Text, nullable=True)
     is_favorited = Column(Boolean, default=False)
     # Origin of this generation — "manual" for plain /generate calls and

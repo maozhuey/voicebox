@@ -40,6 +40,29 @@ def test_model_load_timeout_configuration_uses_a_positive_number(monkeypatch):
     assert config.get_model_load_timeout_seconds() == 180.0
 
 
+def test_generation_execution_timeout_configuration_uses_a_positive_number(monkeypatch):
+    from backend import config
+
+    monkeypatch.setenv("VOICEBOX_GENERATION_EXECUTION_TIMEOUT_SECONDS", "600.5")
+    assert config.get_generation_execution_timeout_seconds() == 600.5
+
+    monkeypatch.setenv("VOICEBOX_GENERATION_EXECUTION_TIMEOUT_SECONDS", "0")
+    assert config.get_generation_execution_timeout_seconds() == 600.0
+
+    monkeypatch.setenv("VOICEBOX_GENERATION_EXECUTION_TIMEOUT_SECONDS", "not-a-number")
+    assert config.get_generation_execution_timeout_seconds() == 600.0
+
+
+def test_cosyvoice_segment_timeout_configuration_uses_a_positive_number(monkeypatch):
+    from backend import config
+
+    monkeypatch.setenv("VOICEBOX_COSYVOICE_SEGMENT_TIMEOUT_SECONDS", "12.5")
+    assert config.get_cosyvoice_segment_timeout_seconds() == 12.5
+
+    monkeypatch.setenv("VOICEBOX_COSYVOICE_SEGMENT_TIMEOUT_SECONDS", "0")
+    assert config.get_cosyvoice_segment_timeout_seconds() == 180.0
+
+
 @pytest.mark.parametrize(
     ("backend_module", "backend_class", "args"),
     [

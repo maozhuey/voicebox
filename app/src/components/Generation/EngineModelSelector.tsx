@@ -11,6 +11,7 @@ import {
 import type { VoiceProfileResponse } from '@/lib/api/types';
 import { getLanguageOptionsForEngine } from '@/lib/constants/languages';
 import type { GenerationFormValues } from '@/lib/hooks/useGenerationForm';
+import { isProfileCompatibleWithEngine as isProfileEngineCompatible } from '@/lib/utils/profileEngineCompatibility';
 
 /**
  * Engine/model options and their display metadata.
@@ -46,15 +47,6 @@ const ENGINE_DESCRIPTIONS: Record<string, string> = {
 const ENGLISH_ONLY_ENGINES = new Set(['luxtts', 'chatterbox_turbo']);
 
 /** Engines that support cloned (reference audio) profiles. */
-const CLONING_ENGINES = new Set([
-  'qwen',
-  'luxtts',
-  'chatterbox',
-  'chatterbox_turbo',
-  'tada',
-  'cosyvoice',
-]);
-
 function getAvailableOptions(selectedProfile?: VoiceProfileResponse | null) {
   if (!selectedProfile) return ENGINE_OPTIONS;
   return ENGINE_OPTIONS.filter((opt) => isProfileCompatibleWithEngine(selectedProfile, opt.engine));
@@ -183,8 +175,5 @@ export function isProfileCompatibleWithEngine(
   profile: VoiceProfileResponse,
   engine: string,
 ): boolean {
-  const voiceType = profile.voice_type || 'cloned';
-  if (voiceType === 'preset') return profile.preset_engine === engine;
-  if (voiceType === 'cloned') return CLONING_ENGINES.has(engine);
-  return true; // designed — future
+  return isProfileEngineCompatible(profile, engine);
 }

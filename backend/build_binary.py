@@ -176,6 +176,12 @@ def build_server(cuda=False, rocm=False):
             "wetext",
             "--collect-all",
             "x_transformers",
+            # CosyVoice imports ModelScope through the package's lazy export
+            # mechanism. Metadata alone lets package discovery succeed but
+            # omits deferred modules such as hub.snapshot_download in frozen
+            # desktop builds, so collect the complete runtime package.
+            "--collect-all",
+            "modelscope",
             "--copy-metadata",
             "modelscope",
             # chatterbox multilingual uses spacy_pkuseg for Chinese word

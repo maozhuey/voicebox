@@ -31,6 +31,17 @@ export function toChineseErrorMessage(error: unknown, fallback = '操作失败�
   if (/already downloaded/i.test(raw)) return '该资源已经下载。';
   if (/not downloaded/i.test(raw)) return '所需模型尚未下载，请先下载模型。';
 
+  if (/only supports engine/i.test(raw) || /only supports.*engine/i.test(raw)) {
+    return '当前预设声音与所选模型不兼容，请选择该声音支持的模型后重试。';
+  }
+  if (/CAPTURE_DIAGNOSTIC:([A-Za-z0-9-]+)/.test(raw)) {
+    const diagnosticId = raw.match(/CAPTURE_DIAGNOSTIC:([A-Za-z0-9-]+)/)?.[1];
+    return `听写失败，请重试。诊断编号：${diagnosticId}`;
+  }
+  if (/Could not decode .*audio/i.test(raw)) {
+    return '录音损坏或格式不受支持，请重新录制后再试。';
+  }
+
   match = raw.match(/HTTP(?: error! status:)?\s*(\d{3})/i);
   if (match) return `请求失败（状态码 ${match[1]}）。`;
 

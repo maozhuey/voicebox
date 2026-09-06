@@ -157,6 +157,8 @@ class GenerationResponse(BaseModel):
     status: str = "completed"
     progress_current: Optional[int] = None
     progress_total: Optional[int] = None
+    cosyvoice_phase: Optional[Literal["preprocessing", "llm_decoding", "flow", "vocoder"]] = None
+    cosyvoice_phase_durations: Optional[dict[str, float]] = None
     error: Optional[str] = None
     is_favorited: bool = False
     source: str = "manual"
@@ -198,6 +200,8 @@ class HistoryResponse(BaseModel):
     status: str = "completed"
     progress_current: Optional[int] = None
     progress_total: Optional[int] = None
+    cosyvoice_phase: Optional[Literal["preprocessing", "llm_decoding", "flow", "vocoder"]] = None
+    cosyvoice_phase_durations: Optional[dict[str, float]] = None
     error: Optional[str] = None
     is_favorited: bool = False
     created_at: datetime

@@ -16,6 +16,7 @@ from backend.services import history, stories
 from backend.utils.chunked_tts import (
     generate_chunked,
     merge_short_prosody_chunks,
+    plan_semantic_boundary_chunks,
     plan_natural_reading,
 )
 
@@ -111,6 +112,28 @@ def test_cosyvoice_style_merging_avoids_tiny_natural_reading_units():
     assert "".join(chunk.text for chunk in merged) == "".join(chunk.text for chunk in planned)
     assert all(len(chunk.text) <= 100 for chunk in merged)
     assert all(len(chunk.text) >= 45 for chunk in merged[:-1])
+
+
+def test_semantic_boundary_plan_never_uses_a_fixed_character_cut():
+    unpunctuated = "无标点" * 200
+
+    chunks = plan_semantic_boundary_chunks(unpunctuated, natural_reading=False)
+
+    assert [(chunk.text, chunk.pause_after_ms) for chunk in chunks] == [(unpunctuated, 0)]
+
+
+def test_semantic_boundary_plan_uses_only_sentence_semicolon_and_paragraph_boundaries():
+    chunks = plan_semantic_boundary_chunks(
+        "第一句，仍在同一句。第二句；第三段\n第四句",
+        natural_reading=True,
+    )
+
+    assert [(chunk.text, chunk.pause_after_ms) for chunk in chunks] == [
+        ("第一句，仍在同一句。", 450),
+        ("第二句；", 220),
+        ("第三段", 650),
+        ("第四句", 0),
+    ]
 
 
 @pytest.mark.asyncio
@@ -261,6 +284,12 @@ def test_migration_adds_natural_reading_without_enabling_existing_data(tmp_path)
     assert "progress_total" in {
         column["name"] for column in inspect(engine).get_columns("generations")
     }
+    assert "cosyvoice_phase" in {
+        column["name"] for column in inspect(engine).get_columns("generations")
+    }
+    assert "cosyvoice_phase_durations" in {
+        column["name"] for column in inspect(engine).get_columns("generations")
+    }
     assert "cosyvoice_mode" in {
         column["name"] for column in inspect(engine).get_columns("generations")
     }
@@ -408,9 +437,13 @@ async def test_history_exposes_live_chunk_progress(tmp_path):
         session,
         progress_current=2,
         progress_total=4,
+        cosyvoice_phase="flow",
+        cosyvoice_phase_durations={"preprocessing": 0.2, "llm_decoding": 1.1},
     )
 
     assert updated is not None
     assert updated.progress_current == 2
     assert updated.progress_total == 4
+    assert updated.cosyvoice_phase == "flow"
+    assert updated.cosyvoice_phase_durations == {"preprocessing": 0.2, "llm_decoding": 1.1}
     session.close()

@@ -112,7 +112,12 @@ from .services import tts, transcribe, llm
 from .database import get_db
 from .utils.platform_detect import get_backend_type
 from .utils.progress import get_progress_manager
-from .services.task_queue import create_background_task, init_queue
+from .services.task_queue import (
+    create_background_task,
+    init_queue,
+    recover_orphaned_generations,
+    shutdown_queue,
+)
 from .routes import register_routers
 
 
@@ -294,33 +299,27 @@ async def _run_startup(application: FastAPI) -> None:
 
     init_queue()
 
-    # Mark stale "generating" records as failed -- leftovers from a killed process
-    from sqlalchemy import text as sa_text
-
-    db = next(get_db())
+    # This process starts with an empty queue, so every persisted active row
+    # belongs to a prior server lifecycle and must be concluded before users
+    # can see it as a permanently-running task.
     try:
-        result = db.execute(
-            sa_text(
-                "UPDATE generations SET status = 'failed', "
-                "error = 'Server was shut down during generation' "
-                "WHERE status IN ('generating', 'loading_model')"
-            )
+        recovered_count = await recover_orphaned_generations(
+            error="Generation interrupted by previous server shutdown"
         )
-        if result.rowcount > 0:
-            logger.info("Marked %d stale generation(s) as failed", result.rowcount)
+        if recovered_count:
+            logger.info("Marked %d stale generation(s) as failed", recovered_count)
 
         from .database import VoiceProfile as DBVoiceProfile, Generation as DBGeneration
 
-        profile_count = db.query(DBVoiceProfile).count()
-        generation_count = db.query(DBGeneration).count()
+        db = next(get_db())
+        try:
+            profile_count = db.query(DBVoiceProfile).count()
+            generation_count = db.query(DBGeneration).count()
+        finally:
+            db.close()
         logger.info("Profiles: %d, Generations: %d", profile_count, generation_count)
-
-        db.commit()
     except Exception as e:
-        db.rollback()
         logger.warning("Could not clean up stale generations: %s", e)
-    finally:
-        db.close()
 
     backend_type = get_backend_type()
     logger.info("Backend: %s", backend_type.upper())
@@ -359,6 +358,7 @@ async def _run_startup(application: FastAPI) -> None:
 async def _run_shutdown() -> None:
     """Unload models on lifespan exit."""
     logger.info("Voicebox server shutting down...")
+    shutdown_queue()
     try:
         tts.unload_tts_model()
     except Exception:

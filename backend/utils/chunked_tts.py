@@ -205,6 +205,43 @@ def plan_natural_reading(
     return chunks
 
 
+def plan_semantic_boundary_chunks(text: str, *, natural_reading: bool) -> List[ProsodyChunk]:
+    """Split only where the author has supplied a meaningful boundary.
+
+    CosyVoice cannot safely rely on a fixed character count: it turns an
+    unpunctuated name, URL or long sentence into altered speech.  Paragraphs,
+    sentence endings and semicolons express a real change of thought, so they
+    are safe independent execution units.  A boundary-free input deliberately
+    remains one protected unit and is handled by the engine deadline instead.
+    """
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    chunks: List[ProsodyChunk] = []
+    start = 0
+
+    for index, char in enumerate(normalized):
+        if char not in _SENTENCE_ENDINGS and char not in _STRONG_CLAUSE_ENDINGS and char != "\n":
+            continue
+        end = index + 1
+        if char in _SENTENCE_ENDINGS:
+            while end < len(normalized) and normalized[end] in "”’\"』」":
+                end += 1
+        # A line break is timing metadata rather than spoken content.
+        unit = normalized[start:end].rstrip("\n")
+        if unit.strip():
+            pause = _boundary_pause_ms(unit) if natural_reading else 0
+            if char == "\n" and natural_reading:
+                pause = max(pause, 650)
+            chunks.append(ProsodyChunk(unit, pause))
+        start = end
+
+    remainder = normalized[start:]
+    if remainder.strip():
+        chunks.append(ProsodyChunk(remainder, 0))
+    if chunks:
+        chunks[-1].pause_after_ms = 0
+    return chunks
+
+
 def merge_short_prosody_chunks(
     chunks: list[ProsodyChunk],
     *,
@@ -435,6 +472,7 @@ async def generate_chunked(
     natural_reading: bool = False,
     natural_chunk_max_chars: int = 70,
     natural_chunk_min_chars: int = 0,
+    semantic_boundaries_only: bool = False,
     trim_fn=None,
     runaway_detector=None,
     progress_callback: Callable[[int, int], Awaitable[None]] | None = None,
@@ -530,7 +568,9 @@ async def generate_chunked(
             chunk_audio = trim_fn(chunk_audio, chunk_sr)
         return np.asarray(chunk_audio, dtype=np.float32), chunk_sr
 
-    if natural_reading:
+    if semantic_boundaries_only:
+        prosody_chunks = plan_semantic_boundary_chunks(text, natural_reading=natural_reading)
+    elif natural_reading:
         natural_limit = min(max_chunk_chars, natural_chunk_max_chars)
         prosody_chunks = plan_natural_reading(text, natural_limit)
         prosody_chunks = merge_short_prosody_chunks(

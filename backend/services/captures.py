@@ -41,6 +41,10 @@ SUPPORTED_CAPTURE_EXTENSIONS = CAPTURE_AUDIO_EXTENSIONS | CAPTURE_VIDEO_EXTENSIO
 WHISPER_NATIVE_FORMATS = (".wav", ".mp3", ".flac", ".ogg")
 
 
+class CaptureTranscriptionError(RuntimeError):
+    """Marks failures after a valid capture has reached the STT engine."""
+
+
 def _to_response(row: DBCapture) -> CaptureResponse:
     flags_model: Optional[RefinementFlagsModel] = None
     if row.refinement_flags:
@@ -132,12 +136,18 @@ async def create_capture(
 
         whisper = get_whisper_model()
         resolved_stt = stt_model or whisper.model_size
-        transcript = await whisper.transcribe(
-            str(audio_path),
-            language,
-            resolved_stt,
-            initial_prompt=initial_prompt,
-        )
+        try:
+            transcript = await whisper.transcribe(
+                str(audio_path),
+                language,
+                resolved_stt,
+                initial_prompt=initial_prompt,
+            )
+        except Exception as error:
+            # A valid file reached Whisper. Keep this distinct from malformed
+            # uploads so the route can return a diagnostic 500 instead of
+            # incorrectly blaming the user's recording.
+            raise CaptureTranscriptionError("Whisper transcription failed") from error
 
         row = DBCapture(
             id=capture_id,

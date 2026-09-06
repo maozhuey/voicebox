@@ -5,6 +5,7 @@ MLX backend implementation for TTS and STT using mlx-audio.
 from typing import Optional, List, Tuple
 import asyncio
 import logging
+from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 from pathlib import Path
 
@@ -31,6 +32,19 @@ class MLXTTSBackend:
         self.model = None
         self.model_size = model_size
         self._current_model_size = None
+        # MLX binds its default GPU stream to the calling OS thread. Loading a
+        # model on one default-pool worker then inferring on another produces
+        # "There is no Stream(gpu, 1) in current thread", so each backend owns
+        # one worker for the complete model lifecycle.
+        self._mlx_executor = ThreadPoolExecutor(
+            max_workers=1,
+            thread_name_prefix="voicebox-mlx-tts",
+        )
+
+    async def _run_on_mlx_thread(self, func, *args):
+        """Run MLX model work on the backend's stream-owning thread."""
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(self._mlx_executor, func, *args)
 
     def is_loaded(self) -> bool:
         """Check if model is loaded."""
@@ -83,8 +97,7 @@ class MLXTTSBackend:
         if self.model is not None and self._current_model_size != model_size:
             self.unload_model()
 
-        # Run blocking load in thread pool
-        await asyncio.to_thread(self._load_model_sync, model_size)
+        await self._run_on_mlx_thread(self._load_model_sync, model_size)
 
     # Alias for compatibility
     load_model = load_model_async
@@ -112,6 +125,16 @@ class MLXTTSBackend:
             del self.model
             self.model = None
             self._current_model_size = None
+            # CosyVoice is CPU-only in the vendored upstream runtime.  Its
+            # memory peak becomes unsafe if MLX's cached Metal allocations
+            # survive the Qwen model object, so explicitly release them when
+            # the shared runtime coordinator switches away from MLX TTS.
+            try:
+                import mlx.core as mx
+
+                mx.metal.clear_cache()
+            except Exception:
+                logger.debug("Unable to clear MLX Metal cache during unload", exc_info=True)
             logger.info("MLX TTS model unloaded")
 
     async def create_voice_prompt(
@@ -260,8 +283,7 @@ class MLXTTSBackend:
 
             return audio, sample_rate
 
-        # Run blocking inference in thread pool
-        audio, sample_rate = await asyncio.to_thread(_generate_sync)
+        audio, sample_rate = await self._run_on_mlx_thread(_generate_sync)
 
         return audio, sample_rate
 

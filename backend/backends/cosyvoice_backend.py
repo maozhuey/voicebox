@@ -12,10 +12,13 @@ import asyncio
 import gc
 import importlib.util
 import logging
+import multiprocessing
 import os
+import queue
 import sys
 import tempfile
 import threading
+import time
 import types
 from pathlib import Path
 from typing import ClassVar
@@ -49,6 +52,68 @@ _END_OF_PROMPT = "<|endofprompt|>"
 _MIN_VALID_AUDIO_SECONDS = 0.2
 _MAX_SPEECH_ZERO_CROSSING_RATE = 0.25
 _QWEN2_COMPAT_MODULE = "transformers.models.qwen2.modeling_qwen2_440"
+_COSYVOICE_PHASES = frozenset({"preprocessing", "llm_decoding", "flow", "vocoder"})
+
+
+class CosyVoiceSegmentTimeoutError(RuntimeError):
+    """A worker was terminated after one independently bounded segment."""
+
+    def __init__(self, phase: str):
+        self.phase = phase
+        super().__init__(f"CosyVoice generation timed out during {phase}")
+
+
+class CosyVoiceWorkerError(RuntimeError):
+    """A private worker exited without a usable audio result."""
+
+    def __init__(self, phase: str):
+        self.phase = phase
+        super().__init__(f"CosyVoice generation failed during {phase}")
+
+
+def _cosyvoice_worker_main(requests, events, model_size: str) -> None:
+    """Own the upstream model and all of its non-cancellable inner threads."""
+    backend = CosyVoiceTTSBackend()
+    try:
+        backend._load_model_sync(model_size)
+        events.put({"kind": "ready"})
+        while True:
+            request = requests.get()
+            if request is None:
+                return
+            request_id = request["id"]
+            phase = "preprocessing"
+
+            def report(next_phase: str, *, event_request_id: str = request_id) -> None:
+                nonlocal phase
+                phase = next_phase
+                events.put({"kind": "phase", "id": event_request_id, "phase": phase})
+
+            try:
+                audio, sample_rate = backend._generate_sync(
+                    request["text"],
+                    request["voice_prompt"],
+                    request["seed"],
+                    request["instruct"],
+                    report,
+                )
+                events.put(
+                    {
+                        "kind": "result",
+                        "id": request_id,
+                        "audio": audio,
+                        "sample_rate": sample_rate,
+                    }
+                )
+            except Exception:
+                # The parent deliberately receives no traceback, text, prompt
+                # path or upstream error.  This stable phase is enough to make
+                # a history entry actionable without leaking user data.
+                events.put({"kind": "error", "id": request_id, "phase": phase})
+    except Exception:
+        events.put({"kind": "startup_error"})
+    finally:
+        backend.unload_model()
 
 
 def _format_instruct_prompt(instruct: str) -> str:
@@ -315,6 +380,12 @@ class CosyVoiceTTSBackend:
         self._device: str | None = None
         self._rl_model_view: tempfile.TemporaryDirectory[str] | None = None
         self._model_load_lock = asyncio.Lock()
+        self._worker_lock = asyncio.Lock()
+        self._worker = None
+        self._worker_requests = None
+        self._worker_events = None
+        self._worker_model_size: str | None = None
+        self._phase_callback = None
 
     def _get_device(self) -> str:
         if getattr(self, "_voicebox_force_cpu", False):
@@ -333,7 +404,7 @@ class CosyVoiceTTSBackend:
         return is_model_cached(self._get_model_path(variant), required_files=required_files)
 
     def is_loaded(self) -> bool:
-        return self.model is not None
+        return self.model is not None or bool(self._worker and self._worker.is_alive())
 
     async def load_model(self, model_size: str = "rl") -> None:
         """Download and load the requested CosyVoice 3 variant once."""
@@ -347,7 +418,12 @@ class CosyVoiceTTSBackend:
                 return
             if self.model is not None:
                 self.unload_model()
-            await asyncio.to_thread(self._load_model_sync, model_size)
+            # The parent must not construct the upstream model: CosyVoice's
+            # internal unbounded join would then be impossible to stop.  The
+            # child is created lazily at first inference so a failed/expired
+            # segment can be killed together with every upstream thread.
+            self.model_size = model_size
+            self._current_model_size = model_size
 
     def _load_model_sync(self, model_size: str) -> None:
         repo_id = self._get_model_path(model_size)
@@ -422,6 +498,7 @@ class CosyVoiceTTSBackend:
         return view_dir
 
     def unload_model(self) -> None:
+        self._terminate_worker()
         was_loaded = self.model is not None
         self.model = None
         self._current_model_size = None
@@ -435,6 +512,108 @@ class CosyVoiceTTSBackend:
         if device:
             empty_device_cache(device)
         logger.info("CosyVoice 3 unloaded")
+
+    def _terminate_worker(self) -> None:
+        """Stop a worker and every internal upstream thread it owns."""
+        worker, self._worker = self._worker, None
+        requests, self._worker_requests = self._worker_requests, None
+        events, self._worker_events = self._worker_events, None
+        self._worker_model_size = None
+        if worker is None:
+            return
+        try:
+            if worker.is_alive() and requests is not None:
+                requests.put_nowait(None)
+                worker.join(timeout=0.5)
+            if worker.is_alive():
+                worker.terminate()
+                worker.join(timeout=2)
+            if worker.is_alive():
+                worker.kill()
+                worker.join(timeout=1)
+        finally:
+            for channel in (requests, events):
+                if channel is not None:
+                    close = getattr(channel, "close", None)
+                    if callable(close):
+                        close()
+
+    def _start_worker(self, model_size: str) -> None:
+        if self._worker is not None and self._worker.is_alive() and self._worker_model_size == model_size:
+            return
+        self._terminate_worker()
+        context = multiprocessing.get_context("spawn")
+        self._worker_requests = context.Queue()
+        self._worker_events = context.Queue()
+        self._worker = context.Process(
+            target=_cosyvoice_worker_main,
+            args=(self._worker_requests, self._worker_events, model_size),
+            name="voicebox-cosyvoice",
+        )
+        self._worker.daemon = True
+        self._worker.start()
+        self._worker_model_size = model_size
+
+    def _generate_in_worker(
+        self,
+        text: str,
+        voice_prompt: dict,
+        seed: int | None,
+        instruct: str | None,
+    ) -> tuple[np.ndarray, int]:
+        from .. import config
+
+        self._start_worker(self._current_model_size or self.model_size)
+        assert self._worker is not None
+        assert self._worker_requests is not None
+        assert self._worker_events is not None
+        deadline = time.monotonic() + config.get_cosyvoice_segment_timeout_seconds()
+        request_id = os.urandom(8).hex()
+        phase = "preprocessing"
+        submitted = False
+
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise CosyVoiceSegmentTimeoutError(phase)
+            try:
+                event = self._worker_events.get(timeout=min(remaining, 0.25))
+            except queue.Empty:
+                if not self._worker.is_alive():
+                    raise CosyVoiceWorkerError(phase) from None
+                continue
+
+            kind = event.get("kind")
+            if kind == "startup_error":
+                raise CosyVoiceWorkerError("preprocessing")
+            if not submitted:
+                if kind != "ready":
+                    continue
+                self._worker_requests.put(
+                    {
+                        "id": request_id,
+                        "text": text,
+                        "voice_prompt": voice_prompt,
+                        "seed": seed,
+                        "instruct": instruct,
+                    }
+                )
+                submitted = True
+                continue
+            if event.get("id") != request_id:
+                continue
+            if kind == "phase":
+                phase = event.get("phase") if event.get("phase") in _COSYVOICE_PHASES else phase
+                if self._phase_callback is not None:
+                    self._phase_callback(phase)
+            elif kind == "result":
+                return np.asarray(event["audio"], dtype=np.float32), int(event["sample_rate"])
+            elif kind == "error":
+                raise CosyVoiceWorkerError(event.get("phase") or phase)
+
+    def set_phase_callback(self, callback) -> None:
+        """Set a transient observer for safe worker phase transitions."""
+        self._phase_callback = callback
 
     async def create_voice_prompt(
         self, audio_path: str, reference_text: str, use_cache: bool = True
@@ -460,18 +639,69 @@ class CosyVoiceTTSBackend:
         if not ref_audio or not Path(ref_audio).is_file():
             raise ValueError("CosyVoice 3 requires an existing reference audio sample for voice cloning.")
 
-        def _generate_sync() -> tuple[np.ndarray, int]:
-            import torch
+        # Unit tests and explicitly injected model instances stay in-process;
+        # production starts with no parent model and therefore always uses the
+        # terminable worker path below.
+        if self.model is not None:
+            return await asyncio.to_thread(
+                self._generate_sync, text, voice_prompt, seed, instruct, None
+            )
 
-            if seed is not None:
-                torch.manual_seed(seed)
-                if torch.cuda.is_available():
-                    torch.cuda.manual_seed_all(seed)
+        async with self._worker_lock:
+            try:
+                return await asyncio.to_thread(
+                    self._generate_in_worker, text, voice_prompt, seed, instruct
+                )
+            except BaseException:
+                # Cancellation and deadline expiry must remove the worker,
+                # otherwise its upstream join can survive and retain memory.
+                self._terminate_worker()
+                raise
 
-            chunks = []
+    def _generate_sync(
+        self,
+        text: str,
+        voice_prompt: dict,
+        seed: int | None,
+        instruct: str | None,
+        phase_callback,
+    ) -> tuple[np.ndarray, int]:
+        """Run one upstream inference while exposing only safe phase names."""
+        import torch
+
+        if self.model is None:
+            raise RuntimeError("CosyVoice model is not loaded")
+        ref_audio = voice_prompt["ref_audio"]
+        if phase_callback is not None:
+            phase_callback("preprocessing")
+        if seed is not None:
+            torch.manual_seed(seed)
+            if torch.cuda.is_available():
+                torch.cuda.manual_seed_all(seed)
+
+        upstream = getattr(self.model, "model", None)
+        restores = []
+
+        def instrument(owner, attribute: str, phase: str) -> None:
+            if owner is None or not hasattr(owner, attribute) or phase_callback is None:
+                return
+            original = getattr(owner, attribute)
+
+            def wrapped(*args, **kwargs):
+                phase_callback(phase)
+                return original(*args, **kwargs)
+
+            setattr(owner, attribute, wrapped)
+            restores.append((owner, attribute, original))
+
+        # The upstream's LLM runs in its own thread, followed by Flow and the
+        # HiFT vocoder.  Wrapping their call sites reveals the real stall point
+        # without persisting prompt text, paths or exceptions.
+        instrument(upstream, "llm_job", "llm_decoding")
+        instrument(getattr(upstream, "flow", None), "inference", "flow")
+        instrument(getattr(upstream, "hift", None), "inference", "vocoder")
+        try:
             if instruct:
-                # CosyVoice 3 applies style, dialect, emotion and pace guidance
-                # through its instruct2 endpoint while preserving the reference voice.
                 outputs = self.model.inference_instruct2(
                     tts_text=text,
                     instruct_text=_format_instruct_prompt(instruct),
@@ -481,22 +711,19 @@ class CosyVoiceTTSBackend:
             else:
                 outputs = self.model.inference_zero_shot(
                     tts_text=text,
-                    # The reference transcript follows the same protocol;
-                    # without the separator CosyVoice 3 asserts before it
-                    # starts inference.
                     prompt_text=_format_reference_prompt(voice_prompt.get("ref_text", "")),
                     prompt_wav=ref_audio,
                     stream=False,
                 )
-            for output in outputs:
-                chunks.append(output["tts_speech"])
+            chunks = [output["tts_speech"] for output in outputs]
             if not chunks:
                 raise RuntimeError("CosyVoice 3 returned no audio.")
             audio = torch.cat(chunks, dim=-1).squeeze().detach().cpu().numpy().astype(np.float32)
             _validate_generated_audio(audio, self.model.sample_rate, text)
             return audio, self.model.sample_rate
-
-        return await asyncio.to_thread(_generate_sync)
+        finally:
+            for owner, attribute, original in reversed(restores):
+                setattr(owner, attribute, original)
 
 
 assert isinstance(CosyVoiceTTSBackend(), TTSBackend)

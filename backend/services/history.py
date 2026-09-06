@@ -135,6 +135,8 @@ async def update_generation_status(
     error: Optional[str] = None,
     progress_current: Optional[int] = None,
     progress_total: Optional[int] = None,
+    cosyvoice_phase: Optional[str] = None,
+    cosyvoice_phase_durations: Optional[dict[str, float]] = None,
 ) -> Optional[GenerationResponse]:
     """Update the status of a generation (used by async generation flow)."""
     generation = db.query(DBGeneration).filter_by(id=generation_id).first()
@@ -152,6 +154,10 @@ async def update_generation_status(
         generation.progress_current = progress_current
     if progress_total is not None:
         generation.progress_total = progress_total
+    if cosyvoice_phase is not None:
+        generation.cosyvoice_phase = cosyvoice_phase
+    if cosyvoice_phase_durations is not None:
+        generation.cosyvoice_phase_durations = cosyvoice_phase_durations
 
     db.commit()
     db.refresh(generation)
@@ -246,6 +252,8 @@ async def list_generations(
             status=generation.status or "completed",
             progress_current=generation.progress_current,
             progress_total=generation.progress_total,
+            cosyvoice_phase=generation.cosyvoice_phase,
+            cosyvoice_phase_durations=generation.cosyvoice_phase_durations,
             error=generation.error,
             is_favorited=bool(generation.is_favorited),
             created_at=generation.created_at,

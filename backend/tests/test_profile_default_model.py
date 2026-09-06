@@ -2,11 +2,14 @@
 
 from types import SimpleNamespace
 
+import pytest
 from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.orm import sessionmaker
 
+from backend.database import Base, Generation, VoiceProfile
 from backend.database.migrations import run_migrations
 from backend.models import GenerationRequest, VoiceProfileCreate
-from backend.routes.generations import _resolve_generation_model_size
+from backend.routes.generations import _resolve_generation_model_size, generate_speech
 from backend.services.profiles import _validate_profile_fields
 
 
@@ -98,3 +101,40 @@ def test_migration_adds_nullable_default_model_size_to_existing_profiles(tmp_pat
         ).scalar_one()
     assert value is None
 
+
+@pytest.mark.asyncio
+async def test_preset_profile_rejects_mismatched_engine_before_creating_generation(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'generation.db'}")
+    Base.metadata.create_all(bind=engine)
+    session = sessionmaker(bind=engine)()
+    try:
+        session.add(
+            VoiceProfile(
+                id="vivian",
+                name="预设-Vivian",
+                language="zh",
+                voice_type="preset",
+                preset_engine="qwen_custom_voice",
+                preset_voice_id="Vivian",
+                default_engine="qwen_custom_voice",
+            )
+        )
+        session.commit()
+
+        with pytest.raises(Exception) as error:
+            await generate_speech(
+                GenerationRequest(
+                    profile_id="vivian",
+                    text="不应入库",
+                    language="zh",
+                    engine="qwen",
+                    model_size="1.7B",
+                ),
+                session,
+            )
+
+        assert getattr(error.value, "status_code", None) == 400
+        assert session.query(Generation).count() == 0
+    finally:
+        session.close()
+        engine.dispose()

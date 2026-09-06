@@ -14,6 +14,8 @@ from ..utils import hf_offline_patch  # noqa: F401
 
 import threading
 import asyncio
+import gc
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Protocol, Optional, Tuple, List
 from typing_extensions import runtime_checkable
@@ -210,6 +212,14 @@ _tts_backends_lock = threading.Lock()
 _stt_backend: Optional[STTBackend] = None
 _llm_backends: dict[str, LLMBackend] = {}
 _llm_backends_lock = threading.Lock()
+
+# A request can bypass the serial history queue (for example a preview or the
+# streaming endpoint).  These leases therefore protect model lifetime at the
+# shared backend boundary, not only at the background-job boundary.  CosyVoice
+# is CPU-heavy on macOS and must not coexist with a retained MLX TTS model,
+# but an already speaking model must always be allowed to finish first.
+_tts_runtime_condition = asyncio.Condition()
+_active_tts_leases: dict[str, int] = {}
 
 # Supported TTS engines — keyed by engine name, value is the backend class import path.
 # The factory function uses this for the if/elif chain; the model configs live on the backend classes.
@@ -549,6 +559,62 @@ def engine_has_model_sizes(engine: str) -> bool:
     """Whether this engine supports multiple model sizes (only Qwen currently)."""
     configs = [c for c in get_tts_model_configs() if c.engine == engine]
     return len(configs) > 1
+
+
+def _unload_idle_tts_backends_except(engine: str) -> None:
+    """Release inactive TTS models before a CosyVoice load.
+
+    The caller has already verified that no other engine has an active lease.
+    Keeping that check outside this synchronous cleanup makes it impossible to
+    evict a model in the middle of an audio request.
+    """
+    for candidate_engine, backend in list(_tts_backends.items()):
+        if candidate_engine == engine or not backend.is_loaded():
+            continue
+        unload = getattr(backend, "unload_model", None)
+        if callable(unload):
+            unload()
+    gc.collect()
+
+
+@asynccontextmanager
+async def acquire_tts_runtime(engine: str):
+    """Hold a model-lifetime lease for a complete TTS load and inference.
+
+    CosyVoice waits for another engine's active request rather than unloading
+    it.  Conversely, non-Cosy requests wait while CosyVoice owns the runtime,
+    preventing a direct preview request from reintroducing Metal pressure.
+    """
+    async with _tts_runtime_condition:
+        if engine == "cosyvoice":
+            await _tts_runtime_condition.wait_for(
+                lambda: not any(
+                    count for candidate, count in _active_tts_leases.items()
+                    if candidate != "cosyvoice"
+                )
+            )
+            _unload_idle_tts_backends_except(engine)
+        else:
+            await _tts_runtime_condition.wait_for(
+                lambda: _active_tts_leases.get("cosyvoice", 0) == 0
+            )
+            # The same ownership rule applies on the return path.  Leaving an
+            # idle CPU CosyVoice worker resident while Qwen reloads Metal
+            # weights recreates the memory peak this coordinator exists to
+            # prevent; a released lease makes this cleanup safe.
+            _unload_idle_tts_backends_except(engine)
+        _active_tts_leases[engine] = _active_tts_leases.get(engine, 0) + 1
+
+    try:
+        yield
+    finally:
+        async with _tts_runtime_condition:
+            remaining = _active_tts_leases.get(engine, 0) - 1
+            if remaining > 0:
+                _active_tts_leases[engine] = remaining
+            else:
+                _active_tts_leases.pop(engine, None)
+            _tts_runtime_condition.notify_all()
 
 
 async def load_engine_model(engine: str, model_size: str = "default") -> None:

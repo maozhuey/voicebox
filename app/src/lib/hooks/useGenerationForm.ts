@@ -5,13 +5,14 @@ import { useTranslation } from 'react-i18next';
 import * as z from 'zod';
 import { useToast } from '@/components/ui/use-toast';
 import { apiClient } from '@/lib/api/client';
-import type { EffectConfig } from '@/lib/api/types';
+import type { EffectConfig, VoiceProfileResponse } from '@/lib/api/types';
 import { LANGUAGE_CODES, type LanguageCode } from '@/lib/constants/languages';
 import { useGeneration } from '@/lib/hooks/useGeneration';
 import { useModelDownloadToast } from '@/lib/hooks/useModelDownloadToast';
 import { useGenerationSettings } from '@/lib/hooks/useSettings';
 import { useGenerationStore } from '@/stores/generationStore';
 import { useUIStore } from '@/stores/uiStore';
+import { getProfileEngineCompatibilityError } from '@/lib/utils/profileEngineCompatibility';
 
 const generationSchema = z.object({
   text: z.string().min(1, '').max(50000),
@@ -92,6 +93,7 @@ export function useGenerationForm(options: UseGenerationFormOptions = {}) {
   async function handleSubmit(
     data: GenerationFormValues,
     selectedProfileId: string | null,
+    selectedProfile?: VoiceProfileResponse | null,
   ): Promise<void> {
     if (!selectedProfileId) {
       toast({
@@ -104,6 +106,15 @@ export function useGenerationForm(options: UseGenerationFormOptions = {}) {
 
     try {
       const engine = data.engine || 'qwen';
+      const compatibilityError = getProfileEngineCompatibilityError(selectedProfile, engine);
+      if (compatibilityError) {
+        toast({
+          title: '声音与模型不兼容',
+          description: compatibilityError,
+          variant: 'destructive',
+        });
+        return;
+      }
       const modelName =
         engine === 'luxtts'
           ? 'luxtts'

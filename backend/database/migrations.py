@@ -205,6 +205,10 @@ def _migrate_generations(engine, inspector, tables: set[str]) -> None:
         _add_column(engine, "generations", "progress_current INTEGER", "progress_current")
     if "progress_total" not in columns:
         _add_column(engine, "generations", "progress_total INTEGER", "progress_total")
+    if "cosyvoice_phase" not in columns:
+        _add_column(engine, "generations", "cosyvoice_phase VARCHAR", "cosyvoice_phase")
+    if "cosyvoice_phase_durations" not in columns:
+        _add_column(engine, "generations", "cosyvoice_phase_durations JSON", "cosyvoice_phase_durations")
     if "target_story_id" not in columns:
         # SQLite ALTER TABLE cannot add the FK constraint safely to an existing
         # table, so legacy databases receive the nullable identifier column.

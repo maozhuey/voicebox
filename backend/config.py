@@ -29,6 +29,46 @@ def get_model_load_timeout_seconds() -> float:
         return 180.0
     return value
 
+
+def get_generation_execution_timeout_seconds() -> float:
+    """Return the bounded runtime for one queued speech generation.
+
+    A model call that stops yielding control would otherwise retain the only
+    generation queue slot forever. This local-only override lets packaged and
+    Docker deployments tune their longest acceptable synthesis duration.
+    """
+    raw_value = os.environ.get("VOICEBOX_GENERATION_EXECUTION_TIMEOUT_SECONDS", "600")
+    try:
+        value = float(raw_value)
+    except ValueError:
+        logger.warning(
+            "Invalid VOICEBOX_GENERATION_EXECUTION_TIMEOUT_SECONDS=%r; using 600",
+            raw_value,
+        )
+        return 600.0
+    if value <= 0:
+        logger.warning(
+            "Non-positive VOICEBOX_GENERATION_EXECUTION_TIMEOUT_SECONDS=%r; using 600",
+            raw_value,
+        )
+        return 600.0
+    return value
+
+
+def get_cosyvoice_segment_timeout_seconds() -> float:
+    """Return the independently terminable deadline for one CosyVoice unit."""
+    raw_value = os.environ.get("VOICEBOX_COSYVOICE_SEGMENT_TIMEOUT_SECONDS", "180")
+    try:
+        value = float(raw_value)
+    except ValueError:
+        logger.warning("Invalid VOICEBOX_COSYVOICE_SEGMENT_TIMEOUT_SECONDS=%r; using 180", raw_value)
+        return 180.0
+    if value <= 0:
+        logger.warning("Non-positive VOICEBOX_COSYVOICE_SEGMENT_TIMEOUT_SECONDS=%r; using 180", raw_value)
+        return 180.0
+    return value
+
+
 # Allow users to override the HuggingFace model download directory.
 # Set VOICEBOX_MODELS_DIR to an absolute path before starting the server.
 # This sets HF_HUB_CACHE so all huggingface_hub downloads go to that path.

@@ -21,6 +21,7 @@ import { useGenerationForm } from '@/lib/hooks/useGenerationForm';
 import { useProfile, useProfiles } from '@/lib/hooks/useProfiles';
 import { useStory } from '@/lib/hooks/useStories';
 import { cn } from '@/lib/utils/cn';
+import { getProfilePreferredEngine } from '@/lib/utils/profileEngineCompatibility';
 import { useGenerationStore } from '@/stores/generationStore';
 import { useStoryStore } from '@/stores/storyStore';
 import { useUIStore } from '@/stores/uiStore';
@@ -172,7 +173,7 @@ export function FloatingGenerateBox({
       form.setValue('language', selectedProfile.language as LanguageCode);
     }
     // Auto-switch engine to match the profile
-    const engine = selectedProfile?.default_engine ?? selectedProfile?.preset_engine;
+    const engine = getProfilePreferredEngine(selectedProfile);
     if (engine) {
       form.setValue('engine', engine as EngineValue);
       // 业务规则：默认模型属于声音档案的一部分。切换档案时必须同步切换
@@ -324,7 +325,12 @@ export function FloatingGenerateBox({
   }, [isExpanded]);
 
   async function onSubmit(data: Parameters<typeof handleSubmit>[0]) {
-    await handleSubmit(data, selectedProfileId);
+    // The list cache is available before the detail query during a rapid voice
+    // switch. Pass either source so the submit-time compatibility guard cannot
+    // be bypassed by stale selection state.
+    const profileForSubmit =
+      selectedProfile ?? profiles?.find((profile) => profile.id === selectedProfileId) ?? null;
+    await handleSubmit(data, selectedProfileId, profileForSubmit);
   }
 
   return (

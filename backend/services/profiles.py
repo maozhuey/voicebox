@@ -155,7 +155,12 @@ async def generate_preset_voice_preview(engine: str, voice_id: str) -> bytes:
     if language is None:
         raise ValueError(f"Preset voice '{voice_id}' is not valid for engine '{engine}'")
 
-    from ..backends import ensure_model_cached_or_raise, get_tts_backend_for_engine, load_engine_model
+    from ..backends import (
+        acquire_tts_runtime,
+        ensure_model_cached_or_raise,
+        get_tts_backend_for_engine,
+        load_engine_model,
+    )
     from . import tts
 
     cache_path = _get_preset_preview_cache_path(engine, voice_id)
@@ -168,17 +173,18 @@ async def generate_preset_voice_preview(engine: str, voice_id: str) -> bytes:
     # 试听不会创建档案或生成历史。Qwen CustomVoice 档案默认使用 1.7B，试听保持一致。  # noqa: RUF003
     model_size = "1.7B" if engine == "qwen_custom_voice" else "default"
     await ensure_model_cached_or_raise(engine, model_size)
-    await load_engine_model(engine, model_size)
+    async with acquire_tts_runtime(engine):
+        await load_engine_model(engine, model_size)
 
-    audio, sample_rate = await get_tts_backend_for_engine(engine).generate(
-        _PRESET_PREVIEW_TEXTS.get(language, _PRESET_PREVIEW_TEXTS["en"]),
-        {
-            "voice_type": "preset",
-            "preset_engine": engine,
-            "preset_voice_id": voice_id,
-        },
-        language=language,
-    )
+        audio, sample_rate = await get_tts_backend_for_engine(engine).generate(
+            _PRESET_PREVIEW_TEXTS.get(language, _PRESET_PREVIEW_TEXTS["en"]),
+            {
+                "voice_type": "preset",
+                "preset_engine": engine,
+                "preset_voice_id": voice_id,
+            },
+            language=language,
+        )
     wav_bytes = tts.audio_to_wav_bytes(audio, sample_rate)
     await asyncio.to_thread(_write_preset_preview_cache, cache_path, wav_bytes)
     return wav_bytes

@@ -11,6 +11,7 @@ from ..backends import get_llm_model_configs, get_stt_model_configs
 from ..backends.base import is_model_cached
 from ..database import Capture as DBCapture, get_db
 from ..services import captures as captures_service
+from ..services.capture_diagnostics import record_capture_failure
 from ..services import settings as settings_service
 from ..services.refinement import RefinementFlags
 
@@ -60,7 +61,15 @@ async def create_capture_endpoint(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception("Failed to create capture")
-        raise HTTPException(status_code=500, detail=str(e))
+        stage = "transcribe" if isinstance(e, captures_service.CaptureTranscriptionError) else "internal"
+        diagnostic_id = record_capture_failure(
+            stage=stage,
+            source=source,
+            filename=file.filename or "capture.wav",
+            model_size=resolved_stt,
+            error=e,
+        )
+        raise HTTPException(status_code=500, detail=f"CAPTURE_DIAGNOSTIC:{diagnostic_id}")
 
     return models.CaptureCreateResponse(
         **capture.model_dump(),

@@ -29,20 +29,15 @@ from ..utils.tasks import get_task_manager
 def _chunking_options(engine: str, max_chunk_chars: Optional[int]) -> dict:
     """Return engine-specific chunk limits without changing public settings.
 
-    CosyVoice 3 zero-shot cloning is unstable for tiny calls and its own text
-    frontend is tuned around roughly 60–80 tokens. Voicebox therefore groups
-    visually separated short lines into 45–100 character semantic blocks.
+    CosyVoice runs one independently terminable worker per semantic unit. It
+    may only split at author-supplied boundaries; a numeric ceiling would
+    alter an unpunctuated sentence, so it is intentionally not used here.
     Other engines retain their existing chunk behavior.
     """
     if engine != "cosyvoice":
         return {"max_chunk_chars": max_chunk_chars} if max_chunk_chars is not None else {}
 
-    requested_limit = max_chunk_chars if max_chunk_chars is not None else 800
-    return {
-        "max_chunk_chars": min(requested_limit, 100),
-        "natural_chunk_max_chars": 100,
-        "natural_chunk_min_chars": 45,
-    }
+    return {"semantic_boundaries_only": True}
 
 
 async def run_generation(
@@ -71,6 +66,7 @@ async def run_generation(
     from ..backends import (
         engine_needs_trim,
         engine_retries_runaway,
+        acquire_tts_runtime,
         get_tts_backend_for_engine,
         load_engine_model,
     )
@@ -79,53 +75,115 @@ async def run_generation(
 
     task_manager = get_task_manager()
     bg_db = next(get_db())
+    cosyvoice_phase: str | None = None
+    cosyvoice_phase_durations: dict[str, float] = {}
 
     try:
-        tts_model = get_tts_backend_for_engine(engine)
+        # The lease spans model load, prompt construction and audio inference.
+        # This is what prevents a CosyVoice request from evicting an already
+        # running preview or streaming request belonging to another engine.
+        async with acquire_tts_runtime(engine):
+            tts_model = get_tts_backend_for_engine(engine)
 
-        if not tts_model.is_loaded():
-            await history.update_generation_status(generation_id, "loading_model", bg_db)
+            if not tts_model.is_loaded():
+                await history.update_generation_status(generation_id, "loading_model", bg_db)
 
-        await load_engine_model(engine, model_size)
+            await load_engine_model(engine, model_size)
 
-        voice_prompt = await profiles.create_voice_prompt_for_profile(
-            profile_id,
-            bg_db,
-            use_cache=True,
-            engine=engine,
-        )
-
-        await history.update_generation_status(generation_id, "generating", bg_db)
-        trim_fn = trim_tts_output if engine_needs_trim(engine) else None
-        runaway_detector = has_tts_runaway if engine_retries_runaway(engine) else None
-
-        gen_kwargs: dict = dict(
-            language=language,
-            seed=seed if mode != "regenerate" else None,
-            instruct=instruct,
-            trim_fn=trim_fn,
-            runaway_detector=runaway_detector,
-        )
-        gen_kwargs.update(_chunking_options(engine, max_chunk_chars))
-        if crossfade_ms is not None:
-            gen_kwargs["crossfade_ms"] = crossfade_ms
-        gen_kwargs["natural_reading"] = natural_reading
-
-        async def report_chunk_progress(current: int, total: int) -> None:
-            # Persist progress because the desktop can reload while generation
-            # continues; the SSE endpoint and history API then agree on the
-            # exact segment currently being synthesized.
-            await history.update_generation_status(
-                generation_id,
-                "generating",
+            voice_prompt = await profiles.create_voice_prompt_for_profile(
+                profile_id,
                 bg_db,
-                progress_current=current,
-                progress_total=total,
+                use_cache=True,
+                engine=engine,
             )
 
-        gen_kwargs["progress_callback"] = report_chunk_progress
+            await history.update_generation_status(generation_id, "generating", bg_db)
+            trim_fn = trim_tts_output if engine_needs_trim(engine) else None
+            runaway_detector = has_tts_runaway if engine_retries_runaway(engine) else None
 
-        audio, sample_rate = await generate_chunked(tts_model, text, voice_prompt, **gen_kwargs)
+            gen_kwargs: dict = dict(
+                language=language,
+                seed=seed if mode != "regenerate" else None,
+                instruct=instruct,
+                trim_fn=trim_fn,
+                runaway_detector=runaway_detector,
+            )
+            gen_kwargs.update(_chunking_options(engine, max_chunk_chars))
+            if crossfade_ms is not None:
+                gen_kwargs["crossfade_ms"] = crossfade_ms
+            gen_kwargs["natural_reading"] = natural_reading
+
+            async def report_chunk_progress(current: int, total: int) -> None:
+                # Persist progress because the desktop can reload while generation
+                # continues; the SSE endpoint and history API then agree on the
+                # exact segment currently being synthesized.
+                await history.update_generation_status(
+                    generation_id,
+                    "generating",
+                    bg_db,
+                    progress_current=current,
+                    progress_total=total,
+                )
+
+            gen_kwargs["progress_callback"] = report_chunk_progress
+            phase_tasks: list[asyncio.Task] = []
+            phase_lock = asyncio.Lock()
+            phase_started_at: float | None = None
+            request_loop = asyncio.get_running_loop()
+
+            def report_cosyvoice_phase(next_phase: str) -> None:
+                """Move worker-thread events onto the request event loop."""
+                nonlocal cosyvoice_phase, phase_started_at
+                async def persist_phase() -> None:
+                    nonlocal cosyvoice_phase, phase_started_at
+                    async with phase_lock:
+                        now = request_loop.time()
+                        if cosyvoice_phase is not None and phase_started_at is not None:
+                            cosyvoice_phase_durations[cosyvoice_phase] = round(
+                                cosyvoice_phase_durations.get(cosyvoice_phase, 0.0)
+                                + now - phase_started_at,
+                                3,
+                            )
+                        cosyvoice_phase = next_phase
+                        phase_started_at = now
+                        await history.update_generation_status(
+                            generation_id,
+                            "generating",
+                            bg_db,
+                            cosyvoice_phase=cosyvoice_phase,
+                            cosyvoice_phase_durations=dict(cosyvoice_phase_durations),
+                        )
+
+                request_loop.call_soon_threadsafe(
+                    lambda: phase_tasks.append(asyncio.create_task(persist_phase()))
+                )
+
+            if engine == "cosyvoice":
+                tts_model.set_phase_callback(report_cosyvoice_phase)
+            try:
+                audio, sample_rate = await generate_chunked(tts_model, text, voice_prompt, **gen_kwargs)
+            finally:
+                if engine == "cosyvoice":
+                    tts_model.set_phase_callback(None)
+                    # The worker emits phase events from a background thread;
+                    # drain scheduled history writes before a final status is
+                    # committed or the request database session is closed.
+                    await asyncio.sleep(0)
+                    if phase_tasks:
+                        await asyncio.gather(*phase_tasks)
+                    if cosyvoice_phase is not None and phase_started_at is not None:
+                        cosyvoice_phase_durations[cosyvoice_phase] = round(
+                            cosyvoice_phase_durations.get(cosyvoice_phase, 0.0)
+                            + asyncio.get_running_loop().time() - phase_started_at,
+                            3,
+                        )
+                        await history.update_generation_status(
+                            generation_id,
+                            "generating",
+                            bg_db,
+                            cosyvoice_phase=cosyvoice_phase,
+                            cosyvoice_phase_durations=dict(cosyvoice_phase_durations),
+                        )
 
         # --- Normalize (generate and regenerate always; retry skips) -----
         if normalize or mode == "regenerate":
@@ -204,11 +262,23 @@ async def run_generation(
         _notify_speak_end(generation_id, status="cancelled")
     except Exception as e:
         traceback.print_exc()
+        error = str(e)
+        if engine == "cosyvoice":
+            phase = getattr(e, "phase", None) or cosyvoice_phase or "preprocessing"
+            safe_labels = {
+                "preprocessing": "前处理",
+                "llm_decoding": "LLM 解码",
+                "flow": "Flow",
+                "vocoder": "声码器",
+            }
+            error = f"CosyVoice 在{safe_labels.get(phase, '前处理')}阶段失败，可重试。"
         await history.update_generation_status(
             generation_id=generation_id,
             status="failed",
             db=bg_db,
-            error=str(e),
+            error=error,
+            cosyvoice_phase=cosyvoice_phase if engine == "cosyvoice" else None,
+            cosyvoice_phase_durations=(cosyvoice_phase_durations if engine == "cosyvoice" else None),
         )
         _notify_speak_end(generation_id, status="failed")
     else:
@@ -338,6 +408,7 @@ async def generate_audio_sync(
     from ..backends import (
         engine_needs_trim,
         engine_retries_runaway,
+        acquire_tts_runtime,
         get_tts_backend_for_engine,
         load_engine_model,
     )
@@ -347,36 +418,37 @@ async def generate_audio_sync(
 
     bg_db = next(get_db())
     try:
-        tts_model = get_tts_backend_for_engine(engine)
-        await load_engine_model(engine, model_size)
+        async with acquire_tts_runtime(engine):
+            tts_model = get_tts_backend_for_engine(engine)
+            await load_engine_model(engine, model_size)
 
-        voice_prompt = await profiles.create_voice_prompt_for_profile(
-            profile_id,
-            bg_db,
-            use_cache=True,
-            engine=engine,
-        )
+            voice_prompt = await profiles.create_voice_prompt_for_profile(
+                profile_id,
+                bg_db,
+                use_cache=True,
+                engine=engine,
+            )
+
+            trim_fn = trim_tts_output if engine_needs_trim(engine) else None
+            runaway_detector = has_tts_runaway if engine_retries_runaway(engine) else None
+
+            gen_kwargs: dict = dict(
+                language=language,
+                seed=seed,
+                instruct=instruct,
+                trim_fn=trim_fn,
+                runaway_detector=runaway_detector,
+            )
+            gen_kwargs.update(_chunking_options(engine, max_chunk_chars))
+            if crossfade_ms is not None:
+                gen_kwargs["crossfade_ms"] = crossfade_ms
+            gen_kwargs["natural_reading"] = natural_reading
+
+            audio, sample_rate = await generate_chunked(
+                tts_model, text, voice_prompt, **gen_kwargs
+            )
     finally:
         bg_db.close()
-
-    trim_fn = trim_tts_output if engine_needs_trim(engine) else None
-    runaway_detector = has_tts_runaway if engine_retries_runaway(engine) else None
-
-    gen_kwargs: dict = dict(
-        language=language,
-        seed=seed,
-        instruct=instruct,
-        trim_fn=trim_fn,
-        runaway_detector=runaway_detector,
-    )
-    gen_kwargs.update(_chunking_options(engine, max_chunk_chars))
-    if crossfade_ms is not None:
-        gen_kwargs["crossfade_ms"] = crossfade_ms
-    gen_kwargs["natural_reading"] = natural_reading
-
-    audio, sample_rate = await generate_chunked(
-        tts_model, text, voice_prompt, **gen_kwargs
-    )
 
     if normalize:
         audio = normalize_audio(audio)
