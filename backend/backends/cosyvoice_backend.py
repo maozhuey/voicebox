@@ -63,6 +63,15 @@ class CosyVoiceSegmentTimeoutError(RuntimeError):
         super().__init__(f"CosyVoice generation timed out during {phase}")
 
 
+class CosyVoiceWorkerStartupTimeoutError(RuntimeError):
+    """The private worker did not finish loading within its startup deadline."""
+
+    phase = "preprocessing"
+
+    def __init__(self):
+        super().__init__("CosyVoice worker startup timed out")
+
+
 class CosyVoiceWorkerError(RuntimeError):
     """A private worker exited without a usable audio result."""
 
@@ -385,6 +394,7 @@ class CosyVoiceTTSBackend:
         self._worker_requests = None
         self._worker_events = None
         self._worker_model_size: str | None = None
+        self._worker_ready = False
         self._phase_callback = None
 
     def _get_device(self) -> str:
@@ -519,6 +529,7 @@ class CosyVoiceTTSBackend:
         requests, self._worker_requests = self._worker_requests, None
         events, self._worker_events = self._worker_events, None
         self._worker_model_size = None
+        self._worker_ready = False
         if worker is None:
             return
         try:
@@ -553,6 +564,35 @@ class CosyVoiceTTSBackend:
         self._worker.daemon = True
         self._worker.start()
         self._worker_model_size = model_size
+        self._worker_ready = False
+
+    def _wait_for_worker_ready(self, timeout_seconds: float) -> None:
+        """Consume the one-time ready handshake for the current worker."""
+        if self._worker_ready:
+            return
+        assert self._worker is not None
+        assert self._worker_events is not None
+        deadline = time.monotonic() + timeout_seconds
+
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise CosyVoiceWorkerStartupTimeoutError()
+            try:
+                event = self._worker_events.get(timeout=min(remaining, 0.25))
+            except queue.Empty:
+                if not self._worker.is_alive():
+                    raise CosyVoiceWorkerError("preprocessing") from None
+                continue
+
+            kind = event.get("kind")
+            if kind == "ready":
+                # Upstream sends ready exactly once after loading. Readiness is
+                # therefore a worker-lifecycle fact, not a per-segment event.
+                self._worker_ready = True
+                return
+            if kind == "startup_error":
+                raise CosyVoiceWorkerError("preprocessing")
 
     def _generate_in_worker(
         self,
@@ -567,10 +607,23 @@ class CosyVoiceTTSBackend:
         assert self._worker is not None
         assert self._worker_requests is not None
         assert self._worker_events is not None
-        deadline = time.monotonic() + config.get_cosyvoice_segment_timeout_seconds()
+        self._wait_for_worker_ready(config.get_model_load_timeout_seconds())
         request_id = os.urandom(8).hex()
         phase = "preprocessing"
-        submitted = False
+
+        # The segment budget starts only after the request enters an already
+        # ready worker. A multi-segment request must not spend the second
+        # segment's budget waiting for a ready event that is emitted only once.
+        self._worker_requests.put(
+            {
+                "id": request_id,
+                "text": text,
+                "voice_prompt": voice_prompt,
+                "seed": seed,
+                "instruct": instruct,
+            }
+        )
+        deadline = time.monotonic() + config.get_cosyvoice_segment_timeout_seconds()
 
         while True:
             remaining = deadline - time.monotonic()
@@ -586,19 +639,8 @@ class CosyVoiceTTSBackend:
             kind = event.get("kind")
             if kind == "startup_error":
                 raise CosyVoiceWorkerError("preprocessing")
-            if not submitted:
-                if kind != "ready":
-                    continue
-                self._worker_requests.put(
-                    {
-                        "id": request_id,
-                        "text": text,
-                        "voice_prompt": voice_prompt,
-                        "seed": seed,
-                        "instruct": instruct,
-                    }
-                )
-                submitted = True
+            if kind == "ready":
+                self._worker_ready = True
                 continue
             if event.get("id") != request_id:
                 continue
