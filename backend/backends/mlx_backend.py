@@ -5,7 +5,6 @@ MLX backend implementation for TTS and STT using mlx-audio.
 from typing import Optional, List, Tuple
 import asyncio
 import logging
-from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 from pathlib import Path
 
@@ -22,6 +21,7 @@ from . import TTSBackend, STTBackend, LANGUAGE_CODE_TO_NAME, WHISPER_HF_REPOS
 from .base import is_model_cached, combine_voice_prompts as _combine_voice_prompts, model_load_progress
 from ..utils.cache import get_cache_key, get_cached_voice_prompt, cache_voice_prompt
 from ..utils.audio import load_audio
+from ..utils.mlx_runtime import get_mlx_runtime
 from ..transcription import TranscriptionResult, build_transcription_result
 
 
@@ -32,19 +32,11 @@ class MLXTTSBackend:
         self.model = None
         self.model_size = model_size
         self._current_model_size = None
-        # MLX binds its default GPU stream to the calling OS thread. Loading a
-        # model on one default-pool worker then inferring on another produces
-        # "There is no Stream(gpu, 1) in current thread", so each backend owns
-        # one worker for the complete model lifecycle.
-        self._mlx_executor = ThreadPoolExecutor(
-            max_workers=1,
-            thread_name_prefix="voicebox-mlx-tts",
-        )
+        self._mlx_runtime = get_mlx_runtime()
 
     async def _run_on_mlx_thread(self, func, *args):
-        """Run MLX model work on the backend's stream-owning thread."""
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._mlx_executor, func, *args)
+        """Run MLX work on the process-wide stream-owning thread."""
+        return await self._mlx_runtime.run(func, *args)
 
     def is_loaded(self) -> bool:
         """Check if model is loaded."""
@@ -95,7 +87,7 @@ class MLXTTSBackend:
 
         # Unload existing model if different size requested
         if self.model is not None and self._current_model_size != model_size:
-            self.unload_model()
+            await self._run_on_mlx_thread(self._unload_model_sync)
 
         await self._run_on_mlx_thread(self._load_model_sync, model_size)
 
@@ -121,6 +113,10 @@ class MLXTTSBackend:
 
     def unload_model(self):
         """Unload the model to free memory."""
+        self._mlx_runtime.run_sync(self._unload_model_sync)
+
+    def _unload_model_sync(self):
+        """Release model and Metal allocations on the stream-owning thread."""
         if self.model is not None:
             del self.model
             self.model = None
@@ -294,6 +290,7 @@ class MLXSTTBackend:
     def __init__(self, model_size: str = "base"):
         self.model = None
         self.model_size = model_size
+        self._mlx_runtime = get_mlx_runtime()
 
     def is_loaded(self) -> bool:
         """Check if model is loaded."""
@@ -316,8 +313,7 @@ class MLXSTTBackend:
         if self.model is not None and self.model_size == model_size:
             return
 
-        # Run blocking load in thread pool
-        await asyncio.to_thread(self._load_model_sync, model_size)
+        await self._mlx_runtime.run(self._load_model_sync, model_size)
 
     # Alias for compatibility
     load_model = load_model_async
@@ -340,6 +336,10 @@ class MLXSTTBackend:
 
     def unload_model(self):
         """Unload the model to free memory."""
+        self._mlx_runtime.run_sync(self._unload_model_sync)
+
+    def _unload_model_sync(self):
+        """Release MLX Whisper on the shared Metal stream thread."""
         if self.model is not None:
             del self.model
             self.model = None
@@ -402,5 +402,4 @@ class MLXSTTBackend:
                 audio_duration_ms=audio_duration_ms,
             )
 
-        # Run blocking transcription in thread pool
-        return await asyncio.to_thread(_transcribe_sync)
+        return await self._mlx_runtime.run(_transcribe_sync)

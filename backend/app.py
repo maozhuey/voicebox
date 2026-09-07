@@ -118,6 +118,7 @@ from .services.task_queue import (
     recover_orphaned_generations,
     shutdown_queue,
 )
+from .services.server_lifecycle import mark_server_clean_shutdown, start_server_lifecycle
 from .routes import register_routers
 
 
@@ -291,6 +292,7 @@ async def _run_startup(application: FastAPI) -> None:
     )
 
     database.init_db()
+    lifecycle = start_server_lifecycle()
 
     from .database.session import _db_path
 
@@ -304,7 +306,8 @@ async def _run_startup(application: FastAPI) -> None:
     # can see it as a permanently-running task.
     try:
         recovered_count = await recover_orphaned_generations(
-            error="Generation interrupted by previous server shutdown"
+            error="Generation interrupted by previous server shutdown",
+            lifecycle=lifecycle.previous_exit,
         )
         if recovered_count:
             logger.info("Marked %d stale generation(s) as failed", recovered_count)
@@ -358,6 +361,7 @@ async def _run_startup(application: FastAPI) -> None:
 async def _run_shutdown() -> None:
     """Unload models on lifespan exit."""
     logger.info("Voicebox server shutting down...")
+    mark_server_clean_shutdown()
     shutdown_queue()
     try:
         tts.unload_tts_model()

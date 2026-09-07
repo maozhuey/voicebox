@@ -53,6 +53,7 @@ import { useSystemAudioCapture } from '@/lib/hooks/useSystemAudioCapture';
 import { useTranscription } from '@/lib/hooks/useTranscription';
 import { convertToWav, formatAudioDuration, getAudioDuration } from '@/lib/utils/audio';
 import { toChineseErrorMessage } from '@/lib/utils/errorMessage';
+import { resolveEditingProfileQueryId } from '@/lib/utils/profileSelection';
 import { usePlatform } from '@/platform/PlatformContext';
 import { useServerStore } from '@/stores/serverStore';
 import { type ProfileFormDraft, useUIStore } from '@/stores/uiStore';
@@ -136,7 +137,11 @@ export function ProfileForm() {
   const setEditingProfileId = useUIStore((state) => state.setEditingProfileId);
   const profileFormDraft = useUIStore((state) => state.profileFormDraft);
   const setProfileFormDraft = useUIStore((state) => state.setProfileFormDraft);
-  const { data: editingProfile } = useProfile(editingProfileId || '');
+  // ProfileForm is always mounted underneath the profile list. Only fetch an
+  // editing profile while its dialog is actually visible, otherwise a stale
+  // in-memory edit ID can surface as a false generation/profile failure.
+  const editingProfileQueryId = resolveEditingProfileQueryId(open, editingProfileId);
+  const { data: editingProfile } = useProfile(editingProfileQueryId || '');
   const createProfile = useCreateProfile();
   const updateProfile = useUpdateProfile();
   const addSample = useAddSample();

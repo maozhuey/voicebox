@@ -76,6 +76,7 @@ import { formatAbsoluteDate, formatDate } from '@/lib/utils/format';
 import { displayLabelForKey, modifierSideHint } from '@/lib/utils/keyCodes';
 import { useGenerationStore } from '@/stores/generationStore';
 import { usePlayerStore } from '@/stores/playerStore';
+import { usePlatform } from '@/platform/PlatformContext';
 
 // Videos are accepted for meeting/screen recordings. The backend extracts
 // their audio track and always hands Whisper a WAV, so no video is stored.
@@ -137,6 +138,7 @@ type PlaybackState = 'idle' | 'generating' | 'playing';
 
 export function CapturesTab() {
   const { t } = useTranslation();
+  const platform = usePlatform();
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -206,6 +208,10 @@ export function CapturesTab() {
   // the race window between ``setSelectedId(new)`` and the refetched list
   // actually containing the new row.
   useEffect(() => {
+    // 捕获窗口间同步依赖 Tauri event bridge。网页开发地址没有该 bridge，
+    // 不应尝试注册监听或把浏览器环境错误干扰语音生成页面。
+    if (!platform.metadata.isTauri) return;
+
     const unlistens: Promise<UnlistenFn>[] = [];
     unlistens.push(
       listen<{ capture: CaptureResponse }>('capture:created', (event) => {
@@ -229,7 +235,7 @@ export function CapturesTab() {
     return () => {
       for (const p of unlistens) p.then((fn) => fn()).catch(() => {});
     };
-  }, [queryClient]);
+  }, [platform.metadata.isTauri, queryClient]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();

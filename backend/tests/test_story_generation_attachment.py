@@ -77,7 +77,7 @@ async def test_completed_generation_is_attached_to_persisted_target_story(
     monkeypatch.setattr(config, "get_generations_dir", lambda: generations_dir)
     monkeypatch.setattr(config, "to_storage_path", lambda path: str(path))
 
-    await generation_service.run_generation(
+    result = await generation_service.run_generation(
         generation_id="generation-id",
         profile_id="voice-id",
         text="这是需要自动加入故事的正文。",
@@ -96,6 +96,7 @@ async def test_completed_generation_is_attached_to_persisted_target_story(
         assert completed.duration == 0.25
         assert story_item.story_id == "story-id"
         assert story_item.start_time_ms == 0
+    assert result.status == "completed"
 
 
 @pytest.mark.asyncio
@@ -144,7 +145,7 @@ async def test_model_load_timeout_marks_generation_failed_and_releases_queue(tmp
     monkeypatch.setattr(backends, "get_tts_backend_for_engine", lambda _engine: FakeBackend())
     monkeypatch.setattr(backends, "load_engine_model", fail_loading)
 
-    await generation_service.run_generation(
+    result = await generation_service.run_generation(
         generation_id="generation-id",
         profile_id="voice-id",
         text="超时测试",
@@ -159,4 +160,5 @@ async def test_model_load_timeout_marks_generation_failed_and_releases_queue(tmp
         failed = session.query(Generation).filter_by(id="generation-id").one()
         assert failed.status == "failed"
         assert failed.error == "模型加载超时，请重试或检查模型与设备"
+    assert result.status == "failed"
     assert FakeTaskManager.completed == ["generation-id"]

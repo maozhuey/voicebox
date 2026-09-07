@@ -54,6 +54,7 @@ import {
   useImportGeneration,
 } from '@/lib/hooks/useHistory';
 import { cn } from '@/lib/utils/cn';
+import { toChineseErrorMessage } from '@/lib/utils/errorMessage';
 import { formatDate, formatDuration, formatEngineName } from '@/lib/utils/format';
 import { useGenerationStore } from '@/stores/generationStore';
 import { usePlayerStore } from '@/stores/playerStore';
@@ -551,6 +552,13 @@ export function HistoryTable() {
                                     total: gen.progress_total,
                                   })
                                 : t('history.status.generating')}
+                          </span>
+                        ) : isFailed && gen.error ? (
+                          <span
+                            className="block truncate text-destructive"
+                            title={toChineseErrorMessage(gen.error)}
+                          >
+                            {toChineseErrorMessage(gen.error)}
                           </span>
                         ) : (
                           formatDate(gen.created_at)

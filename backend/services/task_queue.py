@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from .. import config
+from .generation_diagnostics import write_generation_diagnostic
 
 logger = logging.getLogger(__name__)
 
@@ -47,9 +48,15 @@ def create_background_task(coro) -> asyncio.Task:
 
 async def _generation_worker():
     """Worker that processes generation tasks one at a time."""
+    # A force-reinitialization replaces the module-level queue while an old
+    # worker may still be unwinding cancellation. Keep this worker bound to
+    # the queue it consumed from: its ``task_done`` must never decrement a new
+    # queue's unfinished-task counter or make a later generation disappear.
+    worker_queue = _generation_queue
     while True:
-        job = await _generation_queue.get()
+        job = await worker_queue.get()
         job_finished_cleanly = False
+        runner_result = None
         try:
             if job.generation_id in _cancelled_generation_ids:
                 _cancelled_generation_ids.discard(job.generation_id)
@@ -60,10 +67,20 @@ async def _generation_worker():
             _running_generation_tasks[job.generation_id] = task
             _queued_generation_ids.discard(job.generation_id)
             try:
-                await asyncio.wait_for(
+                runner_result = await asyncio.wait_for(
                     task,
                     timeout=config.get_generation_execution_timeout_seconds(),
                 )
+                if getattr(runner_result, "status", None) not in {"completed", "failed"}:
+                    # Legacy or third-party runners cannot prove that they
+                    # published a terminal record. The database verification
+                    # in ``finally`` remains authoritative, but this log makes
+                    # an accidental bare ``return`` diagnosable during a
+                    # backend integration without exposing request content.
+                    logger.warning(
+                        "Generation runner returned without a terminal receipt: %s",
+                        job.generation_id,
+                    )
                 job_finished_cleanly = True
             except TimeoutError:
                 # A stuck model call blocks every later request because this is
@@ -76,34 +93,39 @@ async def _generation_worker():
                     force=True,
                 )
             except asyncio.CancelledError:
-                if not task.cancelled():
+                # A user cancellation targets the child generation task and
+                # is an expected terminal path. A queue shutdown or forced
+                # reinitialization targets this worker instead; swallowing it
+                # would leave a zombie consumer waiting on the old queue.
+                if _queue_stopping or asyncio.current_task().cancelling() or not task.cancelled():
                     raise
         except Exception:
             traceback.print_exc()
-            await _force_fail_if_active(
+            await _mark_generation_failed_if_active(
                 job.generation_id,
-                "Worker exited without writing terminal status",
+                failure_kind="worker_exited",
             )
         finally:
             _running_generation_tasks.pop(job.generation_id, None)
             _queued_generation_ids.discard(job.generation_id)
-            # A generation coroutine can return after its own error/status
-            # write failed (for example, during a transient SQLite lock). The
-            # database is what drives the desktop UI, so never leave an active
-            # row behind once this process no longer owns its execution.
+            # A coroutine returning is not proof that the user-visible result
+            # was committed. The queue retains ownership until a fresh database
+            # read confirms a terminal state, preventing a 1/3 task from being
+            # silently treated as a normal completion.
             if job_finished_cleanly:
                 await _mark_generation_failed_if_active(
                     job.generation_id,
-                    _INTERRUPTED_GENERATION_ERROR,
+                    failure_kind="terminal_status_missing",
                 )
-            _generation_queue.task_done()
+            worker_queue.task_done()
 
 
 async def _mark_generation_failed_if_active(
     generation_id: str,
-    error: str,
+    error: str | None = None,
     *,
     force: bool = False,
+    failure_kind: Literal["terminal_status_missing", "worker_exited"] | None = None,
 ) -> None:
     """Best-effort terminal write for one unowned active generation record."""
     try:
@@ -125,6 +147,19 @@ async def _mark_generation_failed_if_active(
             status = gen.status or "completed"
             if status not in active_statuses and not (force and status == "failed"):
                 return
+            if failure_kind is not None:
+                diagnostic = write_generation_diagnostic(
+                    kind=failure_kind,
+                    generation_id=generation_id,
+                    engine=gen.engine,
+                    model_size=gen.model_size,
+                    progress_current=gen.progress_current,
+                    progress_total=gen.progress_total,
+                    lifecycle="normal",
+                )
+                error = diagnostic.error_code
+            if error is None:
+                error = _INTERRUPTED_GENERATION_ERROR
             await history.update_generation_status(
                 generation_id=generation_id,
                 status="failed",
@@ -181,7 +216,11 @@ def get_tracked_generation_ids() -> set[str]:
     return set(_queued_generation_ids) | set(_running_generation_tasks)
 
 
-async def recover_orphaned_generations(*, error: str = _INTERRUPTED_GENERATION_ERROR) -> int:
+async def recover_orphaned_generations(
+    *,
+    error: str = _INTERRUPTED_GENERATION_ERROR,
+    lifecycle: Literal["normal", "unexpected", "unknown"] | None = None,
+) -> int:
     """Fail active history rows that are not owned by the current queue.
 
     Recovery never replays work and never deletes user content. A previous
@@ -204,11 +243,23 @@ async def recover_orphaned_generations(*, error: str = _INTERRUPTED_GENERATION_E
             for generation in active_rows:
                 if generation.id in tracked_ids:
                     continue
+                resolved_error = error
+                if lifecycle is not None:
+                    diagnostic = write_generation_diagnostic(
+                        kind="server_exited",
+                        generation_id=generation.id,
+                        engine=generation.engine,
+                        model_size=generation.model_size,
+                        progress_current=generation.progress_current,
+                        progress_total=generation.progress_total,
+                        lifecycle=lifecycle,
+                    )
+                    resolved_error = diagnostic.error_code
                 await history.update_generation_status(
                     generation.id,
                     status="failed",
                     db=db,
-                    error=error,
+                    error=resolved_error,
                 )
                 recovered += 1
             if recovered:
@@ -259,10 +310,19 @@ def shutdown_queue() -> None:
     """Stop queue supervision during server shutdown without triggering a restart."""
     global _queue_stopping
     _queue_stopping = True
-    if _generation_worker_task is not None and not _generation_worker_task.done():
-        if not _generation_worker_task.get_loop().is_closed():
-            _generation_worker_task.cancel()
+    _cancel_task_if_loop_open(_generation_worker_task)
     for task in list(_running_generation_tasks.values()):
+        task.cancel()
+
+
+def _cancel_task_if_loop_open(task: asyncio.Task | None) -> None:
+    """Cancel a task only while its owner loop can receive cancellation.
+
+    Test and desktop reload paths can replace a queue after its previous event
+    loop closed. Calling ``Task.cancel`` on that task raises and prevents the
+    new worker from starting, even though the stale task cannot execute again.
+    """
+    if task is not None and not task.done() and not task.get_loop().is_closed():
         task.cancel()
 
 
@@ -277,7 +337,7 @@ def init_queue(force: bool = False):
     if _generation_worker_task is not None and not _generation_worker_task.done():
         if not force:
             return
-        _generation_worker_task.cancel()
+        _cancel_task_if_loop_open(_generation_worker_task)
         for task in list(_running_generation_tasks.values()):
             task.cancel()
 

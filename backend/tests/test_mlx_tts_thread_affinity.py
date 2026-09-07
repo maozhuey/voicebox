@@ -30,8 +30,8 @@ async def test_mlx_tts_load_and_generate_share_a_dedicated_thread(monkeypatch):
 
     monkeypatch.setattr(backend, "_load_model_sync", fake_load)
 
-    # A default executor may choose a different worker for the second call;
-    # MLX streams are thread-local, so this backend must own its executor.
+    # The process-wide MLX coordinator owns Metal's stream thread. A default
+    # executor may choose a different worker for the second call and is unsafe.
     with patch(
         "backend.backends.mlx_backend.asyncio.to_thread",
         side_effect=AssertionError("MLX TTS must not use the default executor"),

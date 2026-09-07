@@ -22,6 +22,7 @@ import { useProfile, useProfiles } from '@/lib/hooks/useProfiles';
 import { useStory } from '@/lib/hooks/useStories';
 import { cn } from '@/lib/utils/cn';
 import { getProfilePreferredEngine } from '@/lib/utils/profileEngineCompatibility';
+import { resolveSelectedProfileId } from '@/lib/utils/profileSelection';
 import { useGenerationStore } from '@/stores/generationStore';
 import { useStoryStore } from '@/stores/storyStore';
 import { useUIStore } from '@/stores/uiStore';
@@ -41,8 +42,11 @@ export function FloatingGenerateBox({
   const selectedProfileId = useUIStore((state) => state.selectedProfileId);
   const setSelectedProfileId = useUIStore((state) => state.setSelectedProfileId);
   const setSelectedEngine = useUIStore((state) => state.setSelectedEngine);
-  const { data: selectedProfile } = useProfile(selectedProfileId || '');
   const { data: profiles } = useProfiles();
+  // 声音选择会持久化，但它只对当时连接的服务有效。档案列表返回前不允许
+  // 提交；返回后始终用当前服务确认过的 ID，避免迁移或删除档案后仍请求旧 ID。
+  const activeProfileId = resolveSelectedProfileId(selectedProfileId, profiles);
+  const { data: selectedProfile } = useProfile(activeProfileId || '');
   const [isExpanded, setIsExpanded] = useState(false);
   const [isInstructExpanded, setIsInstructExpanded] = useState(false);
   const [selectedPresetId, setSelectedPresetId] = useState<string | null>(null);
@@ -60,8 +64,8 @@ export function FloatingGenerateBox({
 
   const composeMutation = useMutation({
     mutationFn: async () => {
-      if (!selectedProfileId) throw new Error('未选择声音档案');
-      return apiClient.composeWithPersonality(selectedProfileId);
+      if (!activeProfileId) throw new Error('未选择声音档案');
+      return apiClient.composeWithPersonality(activeProfileId);
     },
     onError: (err: Error) => {
       toast({
@@ -134,10 +138,10 @@ export function FloatingGenerateBox({
 
   // Set first voice as default if none selected
   useEffect(() => {
-    if (!selectedProfileId && profiles && profiles.length > 0) {
-      setSelectedProfileId(profiles[0].id);
+    if (profiles && activeProfileId !== selectedProfileId) {
+      setSelectedProfileId(activeProfileId);
     }
-  }, [selectedProfileId, profiles, setSelectedProfileId]);
+  }, [activeProfileId, selectedProfileId, profiles, setSelectedProfileId]);
 
   // Sync engine selection to global store so ProfileList can filter
   const watchedEngine = form.watch('engine');
@@ -329,8 +333,8 @@ export function FloatingGenerateBox({
     // switch. Pass either source so the submit-time compatibility guard cannot
     // be bypassed by stale selection state.
     const profileForSubmit =
-      selectedProfile ?? profiles?.find((profile) => profile.id === selectedProfileId) ?? null;
-    await handleSubmit(data, selectedProfileId, profileForSubmit);
+      selectedProfile ?? profiles?.find((profile) => profile.id === activeProfileId) ?? null;
+    await handleSubmit(data, activeProfileId, profileForSubmit);
   }
 
   return (
@@ -393,7 +397,7 @@ export function FloatingGenerateBox({
                                 maxHeight: '300px',
                                 overflowY: 'auto',
                               }}
-                              disabled={!selectedProfileId}
+                              disabled={!activeProfileId}
                               onClick={() => setIsExpanded(true)}
                               onFocus={() => setIsExpanded(true)}
                             />
@@ -420,7 +424,7 @@ export function FloatingGenerateBox({
                                 minHeight: isExpanded ? '100px' : '32px',
                                 maxHeight: '300px',
                               }}
-                              disabled={!selectedProfileId}
+                              disabled={!activeProfileId}
                               onClick={() => setIsExpanded(true)}
                               onFocus={() => setIsExpanded(true)}
                             />
@@ -448,7 +452,7 @@ export function FloatingGenerateBox({
                           type="button"
                           variant="ghost"
                           size="icon"
-                          disabled={composeMutation.isPending || !selectedProfileId}
+                          disabled={composeMutation.isPending || !activeProfileId}
                           onClick={async () => {
                             const result = await composeMutation.mutateAsync();
                             form.setValue('text', result.text, { shouldDirty: true });
@@ -556,13 +560,13 @@ export function FloatingGenerateBox({
                 <div className="group relative">
                   <Button
                     type="submit"
-                    disabled={isPending || !selectedProfileId}
+                    disabled={isPending || !activeProfileId}
                     className="h-10 w-10 rounded-full bg-accent hover:bg-accent/90 hover:scale-105 text-accent-foreground shadow-lg hover:shadow-accent/50 transition-all duration-200"
                     size="icon"
                     aria-label={
                       isPending
                         ? t('generation.button.generating')
-                        : !selectedProfileId
+                        : !activeProfileId
                           ? t('generation.button.selectFirst')
                           : t('generation.button.generate')
                     }
@@ -576,7 +580,7 @@ export function FloatingGenerateBox({
                   <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 whitespace-nowrap rounded-md bg-popover px-3 py-1.5 text-xs text-popover-foreground border border-border opacity-0 transition-opacity group-hover:opacity-100 z-[9999]">
                     {isPending
                       ? t('generation.button.generating')
-                      : !selectedProfileId
+                      : !activeProfileId
                         ? t('generation.button.selectFirst')
                         : t('generation.button.generate')}
                   </span>
@@ -628,7 +632,7 @@ export function FloatingGenerateBox({
                   {showVoiceSelector && (
                     <div className="flex-1">
                       <Select
-                        value={selectedProfileId || ''}
+                        value={activeProfileId || ''}
                         onValueChange={(value) => setSelectedProfileId(value || null)}
                       >
                         <SelectTrigger className="h-8 text-xs bg-card border-border rounded-full hover:bg-background/50 transition-all w-full">

@@ -23,7 +23,7 @@ export function toChineseErrorMessage(error: unknown, fallback = '操作失败�
   if (/failed to fetch|networkerror|network request failed|load failed/i.test(raw)) {
     return '无法连接本地服务，请确认服务已启动并检查网络连接。';
   }
-  if (/profile not found/i.test(raw)) return '未找到声音档案。';
+  if (/profile not found/i.test(raw)) return '所选声音档案已失效，请重新选择声音后再试。';
   if (/generation not found/i.test(raw)) return '未找到生成任务。';
   if (/story not found/i.test(raw)) return '未找到故事。';
   if (/only failed generations can be retried/i.test(raw)) return '只能重试生成失败的任务。';
@@ -41,6 +41,26 @@ export function toChineseErrorMessage(error: unknown, fallback = '操作失败�
   if (/CAPTURE_REFINEMENT_DIAGNOSTIC:([A-Za-z0-9-]+)/.test(raw)) {
     const diagnosticId = raw.match(/CAPTURE_REFINEMENT_DIAGNOSTIC:([A-Za-z0-9-]+)/)?.[1];
     return `精修失败，请重试。诊断编号：${diagnosticId}`;
+  }
+  match = raw.match(
+    /^GENERATION_TERMINAL_STATUS_MISSING:([A-Za-z0-9-]+)(?::(\d+)\/(\d+))?$/,
+  );
+  if (match) {
+    const [, diagnosticId, current, total] = match;
+    const progress = current && total ? `第 ${current}/${total} 段` : '完成前';
+    return `合成在${progress}中断，请重试。诊断编号：${diagnosticId}`;
+  }
+  match = raw.match(/^GENERATION_WORKER_EXITED:([A-Za-z0-9-]+)(?::(\d+)\/(\d+))?$/);
+  if (match) {
+    const [, diagnosticId, current, total] = match;
+    const progress = current && total ? `（第 ${current}/${total} 段）` : '';
+    return `合成任务异常结束${progress}，请重试。诊断编号：${diagnosticId}`;
+  }
+  match = raw.match(/^GENERATION_SERVER_EXITED:([A-Za-z0-9-]+)(?::(\d+)\/(\d+))?$/);
+  if (match) {
+    const [, diagnosticId, current, total] = match;
+    const progress = current && total ? `（第 ${current}/${total} 段）` : '';
+    return `本地服务异常结束，合成已中断${progress}，请重试。诊断编号：${diagnosticId}`;
   }
   if (/Could not decode .*audio/i.test(raw)) {
     return '录音损坏或格式不受支持，请重新录制后再试。';

@@ -18,12 +18,20 @@ from __future__ import annotations
 
 import asyncio
 import traceback
+from dataclasses import dataclass
 from typing import Literal, Optional
 
 from .. import config
-from . import history, profiles
 from ..database import get_db
 from ..utils.tasks import get_task_manager
+from . import history, profiles
+
+
+@dataclass(frozen=True)
+class GenerationRunResult:
+    """The in-process proof that a runner has published its terminal state."""
+
+    status: Literal["completed", "failed"]
 
 
 def _chunking_options(engine: str, max_chunk_chars: Optional[int]) -> dict:
@@ -57,7 +65,7 @@ async def run_generation(
     crossfade_ms: Optional[int] = None,
     natural_reading: bool = False,
     version_id: Optional[str] = None,
-) -> None:
+) -> GenerationRunResult:
     """Execute TTS inference and persist the result.
 
     This is the single entry point for all background generation work.
@@ -246,20 +254,25 @@ async def run_generation(
                 bg_db,
             )
 
-        await history.update_generation_status(
+        final_status = await history.update_generation_status(
             generation_id=generation_id,
             status="completed",
             db=bg_db,
         )
+        if final_status is None:
+            raise RuntimeError("Generation record disappeared before completion")
 
     except asyncio.CancelledError:
-        await history.update_generation_status(
+        failed_status = await history.update_generation_status(
             generation_id=generation_id,
             status="failed",
             db=bg_db,
             error="Generation cancelled",
         )
+        if failed_status is None:
+            raise RuntimeError("Generation record disappeared while cancellation was recorded") from None
         _notify_speak_end(generation_id, status="cancelled")
+        return GenerationRunResult(status="failed")
     except Exception as e:
         traceback.print_exc()
         error = str(e)
@@ -271,8 +284,8 @@ async def run_generation(
                 "flow": "Flow",
                 "vocoder": "声码器",
             }
-            error = f"CosyVoice 在{safe_labels.get(phase, '前处理')}阶段失败，可重试。"
-        await history.update_generation_status(
+            error = f"CosyVoice 在{safe_labels.get(phase, '前处理')}阶段失败，可重试。"  # noqa: RUF001
+        failed_status = await history.update_generation_status(
             generation_id=generation_id,
             status="failed",
             db=bg_db,
@@ -280,9 +293,13 @@ async def run_generation(
             cosyvoice_phase=cosyvoice_phase if engine == "cosyvoice" else None,
             cosyvoice_phase_durations=(cosyvoice_phase_durations if engine == "cosyvoice" else None),
         )
+        if failed_status is None:
+            raise RuntimeError("Generation record disappeared while failure was recorded") from e
         _notify_speak_end(generation_id, status="failed")
+        return GenerationRunResult(status="failed")
     else:
         _notify_speak_end(generation_id, status="completed")
+        return GenerationRunResult(status="completed")
     finally:
         task_manager.complete_generation(generation_id)
         bg_db.close()

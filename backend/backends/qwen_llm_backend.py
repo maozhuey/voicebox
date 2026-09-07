@@ -19,6 +19,7 @@ from .base import (
     manual_seed,
     model_load_progress,
 )
+from ..utils.mlx_runtime import get_mlx_runtime
 
 logger = logging.getLogger(__name__)
 
@@ -190,6 +191,7 @@ class MLXQwenLLMBackend:
         self.tokenizer = None
         self.model_size = model_size
         self._current_model_size: Optional[str] = None
+        self._mlx_runtime = get_mlx_runtime()
 
     def is_loaded(self) -> bool:
         return self.model is not None
@@ -213,9 +215,9 @@ class MLXQwenLLMBackend:
             return
 
         if self.model is not None and self._current_model_size != model_size:
-            self.unload_model()
+            await self._mlx_runtime.run(self._unload_model_sync)
 
-        await asyncio.to_thread(self._load_model_sync, model_size)
+        await self._mlx_runtime.run(self._load_model_sync, model_size)
 
     def _load_model_sync(self, model_size: str) -> None:
         from mlx_lm import load as mlx_load
@@ -239,6 +241,10 @@ class MLXQwenLLMBackend:
         logger.info("Qwen3 %s (MLX) loaded successfully", model_size)
 
     def unload_model(self) -> None:
+        self._mlx_runtime.run_sync(self._unload_model_sync)
+
+    def _unload_model_sync(self) -> None:
+        """Release MLX LLM weights on the shared Metal stream thread."""
         if self.model is None:
             return
         del self.model
@@ -258,7 +264,7 @@ class MLXQwenLLMBackend:
         examples: Optional[list[tuple[str, str]]] = None,
     ) -> str:
         await self.load_model(model_size)
-        return await asyncio.to_thread(
+        return await self._mlx_runtime.run(
             self._generate_sync, prompt, system, max_tokens, temperature, examples
         )
 

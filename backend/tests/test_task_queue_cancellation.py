@@ -4,12 +4,14 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from backend import config
 from backend.database import Base, Generation
 from backend.services import task_queue
 
 
 def _configure_queue_test_database(monkeypatch, tmp_path):
     """Bind queue recovery to an isolated SQLite database for one test."""
+    monkeypatch.setattr(config, "_data_dir", tmp_path / "data")
     engine = create_engine(f"sqlite:///{tmp_path / 'queue-recovery.db'}")
     Base.metadata.create_all(bind=engine)
     session_factory = sessionmaker(bind=engine)
@@ -17,7 +19,12 @@ def _configure_queue_test_database(monkeypatch, tmp_path):
     return engine, session_factory
 
 
-def _active_generation(generation_id: str = "orphan") -> Generation:
+def _active_generation(
+    generation_id: str = "orphan",
+    *,
+    progress_current: int | None = None,
+    progress_total: int | None = None,
+) -> Generation:
     return Generation(
         id=generation_id,
         profile_id="profile",
@@ -27,6 +34,8 @@ def _active_generation(generation_id: str = "orphan") -> Generation:
         status="generating",
         engine="cosyvoice",
         model_size="rl",
+        progress_current=progress_current,
+        progress_total=progress_total,
     )
 
 
@@ -228,6 +237,96 @@ async def test_recovery_keeps_currently_running_generation_active(monkeypatch, t
         assert session.query(Generation).filter_by(id="running").one().status == "generating"
     finally:
         release.set()
+        task_queue.shutdown_queue()
+        session.close()
+        engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_runner_returning_without_terminal_status_is_diagnosed_and_next_job_runs(
+    monkeypatch, tmp_path
+):
+    engine, session_factory = _configure_queue_test_database(monkeypatch, tmp_path)
+    session = session_factory()
+    session.add(_active_generation("unfinished", progress_current=1, progress_total=3))
+    session.commit()
+    next_job_ran = asyncio.Event()
+
+    async def unfinished_job():
+        # This emulates the historical failure: inference got through one
+        # semantic segment but the runner returned before publishing a status.
+        return None
+
+    async def next_job():
+        next_job_ran.set()
+
+    task_queue.init_queue(force=True)
+    try:
+        task_queue.enqueue_generation("unfinished", unfinished_job())
+        task_queue.enqueue_generation("next", next_job())
+        await asyncio.wait_for(next_job_ran.wait(), timeout=1)
+
+        session.expire_all()
+        generation = session.query(Generation).filter_by(id="unfinished").one()
+        assert generation.status == "failed"
+        assert generation.progress_current == 1
+        assert generation.progress_total == 3
+        assert generation.error.startswith("GENERATION_TERMINAL_STATUS_MISSING:")
+        assert generation.error.endswith(":1/3")
+    finally:
+        task_queue.shutdown_queue()
+        session.close()
+        engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_worker_exception_is_diagnosed_and_next_job_runs(monkeypatch, tmp_path):
+    engine, session_factory = _configure_queue_test_database(monkeypatch, tmp_path)
+    session = session_factory()
+    session.add(_active_generation("worker-error", progress_current=2, progress_total=3))
+    session.commit()
+    next_job_ran = asyncio.Event()
+
+    async def failing_job():
+        raise RuntimeError("do not expose this worker message")
+
+    async def next_job():
+        next_job_ran.set()
+
+    task_queue.init_queue(force=True)
+    try:
+        task_queue.enqueue_generation("worker-error", failing_job())
+        task_queue.enqueue_generation("next", next_job())
+        await asyncio.wait_for(next_job_ran.wait(), timeout=1)
+
+        session.expire_all()
+        generation = session.query(Generation).filter_by(id="worker-error").one()
+        assert generation.status == "failed"
+        assert generation.error.startswith("GENERATION_WORKER_EXITED:")
+        assert generation.error.endswith(":2/3")
+        assert "do not expose" not in generation.error
+    finally:
+        task_queue.shutdown_queue()
+        session.close()
+        engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_abnormal_server_recovery_uses_lifecycle_diagnostic(monkeypatch, tmp_path):
+    engine, session_factory = _configure_queue_test_database(monkeypatch, tmp_path)
+    session = session_factory()
+    session.add(_active_generation("server-exit", progress_current=1, progress_total=3))
+    session.commit()
+
+    task_queue.init_queue(force=True)
+    try:
+        assert await task_queue.recover_orphaned_generations(lifecycle="unexpected") == 1
+        session.expire_all()
+        generation = session.query(Generation).filter_by(id="server-exit").one()
+        assert generation.status == "failed"
+        assert generation.error.startswith("GENERATION_SERVER_EXITED:")
+        assert generation.error.endswith(":1/3")
+    finally:
         task_queue.shutdown_queue()
         session.close()
         engine.dispose()
