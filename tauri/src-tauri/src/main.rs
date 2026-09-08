@@ -288,6 +288,7 @@ async fn start_server(
     #[cfg(unix)]
     {
         use std::process::Command;
+        let mut port_in_use = false;
         if let Ok(output) = Command::new("lsof")
             .args(["-i", &format!(":{}", SERVER_PORT), "-sTCP:LISTEN"])
             .output()
@@ -296,6 +297,7 @@ async fn start_server(
             for line in output_str.lines().skip(1) {
                 let parts: Vec<&str> = line.split_whitespace().collect();
                 if parts.len() >= 2 {
+                    port_in_use = true;
                     let command = parts[0];
                     let pid_str = parts[1];
                     if command.contains("voicebox") {
@@ -322,6 +324,19 @@ async fn start_server(
                     }
                 }
             }
+        }
+        // lsof returned nothing. The Tauri process is running as the current user
+        // (uid != 0), so a server running as root (e.g. a system LaunchDaemon) is
+        // invisible to our lsof. Fall back to a TCP connect + health check so we
+        // don't try to spawn a second server that will immediately fail with
+        // EADDRINUSE.
+        if !port_in_use && check_health(SERVER_PORT) {
+            println!(
+                "lsof didn't see any LISTEN on port {} (likely cross-user / cross-uid), \
+                 but health check passed — reusing existing server.",
+                SERVER_PORT
+            );
+            return Ok(format!("http://127.0.0.1:{}", SERVER_PORT));
         }
     }
     

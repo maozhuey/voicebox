@@ -17,6 +17,7 @@ Mode differences:
 from __future__ import annotations
 
 import asyncio
+import logging
 import traceback
 from dataclasses import dataclass
 from typing import Literal, Optional
@@ -25,6 +26,8 @@ from .. import config
 from ..database import get_db
 from ..utils.tasks import get_task_manager
 from . import history, profiles
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -263,14 +266,27 @@ async def run_generation(
             raise RuntimeError("Generation record disappeared before completion")
 
     except asyncio.CancelledError:
-        failed_status = await history.update_generation_status(
-            generation_id=generation_id,
-            status="failed",
-            db=bg_db,
-            error="Generation cancelled",
-        )
+        # Cancellation must still publish a user-visible failed state so the
+        # queue worker never has to fall back to the "Generation interrupted
+        # before completion" diagnostic. ``bg_db`` is already opened for this
+        # worker and reused in the finally block.
+        try:
+            failed_status = await history.update_generation_status(
+                generation_id=generation_id,
+                status="failed",
+                db=bg_db,
+                error="Generation cancelled",
+            )
+        except Exception:
+            logger.exception("Failed to persist cancelled status for %s", generation_id)
+            failed_status = None
         if failed_status is None:
-            raise RuntimeError("Generation record disappeared while cancellation was recorded") from None
+            # The cancellation record itself should never raise; the task
+            # queue's recovery path will retry as orphaned cleanup.
+            logger.warning(
+                "Cancellation record missing for generation %s; queue recovery will retry",
+                generation_id,
+            )
         _notify_speak_end(generation_id, status="cancelled")
         return GenerationRunResult(status="failed")
     except Exception as e:
@@ -285,16 +301,33 @@ async def run_generation(
                 "vocoder": "声码器",
             }
             error = f"CosyVoice 在{safe_labels.get(phase, '前处理')}阶段失败，可重试。"  # noqa: RUF001
-        failed_status = await history.update_generation_status(
-            generation_id=generation_id,
-            status="failed",
-            db=bg_db,
-            error=error,
-            cosyvoice_phase=cosyvoice_phase if engine == "cosyvoice" else None,
-            cosyvoice_phase_durations=(cosyvoice_phase_durations if engine == "cosyvoice" else None),
-        )
+        # MLX / Metal native crashes are surfaced as ``RuntimeError`` from
+        # ``MLXTTSBackend`` after the runtime-reset retry already failed.
+        # Replace the raw native message with a user-facing summary so the
+        # desktop shows an actionable hint instead of an opaque stack trace.
+        elif "MLX 推理失败" in error or isinstance(e, RuntimeError) and getattr(e, "__mlx_native__", False):
+            error = "模型推理失败(MLX runtime),请重试或重启 Voicebox"
+        try:
+            failed_status = await history.update_generation_status(
+                generation_id=generation_id,
+                status="failed",
+                db=bg_db,
+                error=error,
+                cosyvoice_phase=cosyvoice_phase if engine == "cosyvoice" else None,
+                cosyvoice_phase_durations=(cosyvoice_phase_durations if engine == "cosyvoice" else None),
+            )
+        except Exception:
+            logger.exception("Failed to persist failed status for %s", generation_id)
+            failed_status = None
         if failed_status is None:
-            raise RuntimeError("Generation record disappeared while failure was recorded") from e
+            # Surface the failure but never re-raise: the task queue worker
+            # must be able to advance without falling back to its generic
+            # "Generation interrupted before completion" diagnostic.
+            logger.error(
+                "Generation row missing while recording failure for %s: %s",
+                generation_id,
+                error,
+            )
         _notify_speak_end(generation_id, status="failed")
         return GenerationRunResult(status="failed")
     else:

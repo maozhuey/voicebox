@@ -187,6 +187,64 @@ class MLXTTSBackend:
     async def combine_voice_prompts(self, audio_paths, reference_texts):
         return await _combine_voice_prompts(audio_paths, reference_texts)
 
+    def _reset_mlx_runtime(self) -> None:
+        """Drop model state and clear Metal caches after a native crash.
+
+        The PyInstaller-packaged server has been observed to keep Metal
+        command-encoder state alive across generations, so a single bad call
+        can silently null the audio stream of every following inference. We
+        can't restart the process from here, but releasing the cached model
+        weights and forcing ``mx.metal.clear_cache()`` is enough to recover
+        in the next call. Caller is responsible for reloading the model.
+        """
+        try:
+            del self.model
+        except Exception:
+            logger.debug("Failed to release MLX model before reset", exc_info=True)
+        self.model = None
+        self._current_model_size = None
+        try:
+            import mlx.core as mx
+
+            mx.metal.clear_cache()
+        except Exception:
+            logger.debug("Could not clear MLX Metal cache during runtime reset", exc_info=True)
+
+    async def _generate_with_native_retry(self, text: str, voice_prompt: dict, language: str, seed: Optional[int]) -> Tuple[np.ndarray, int]:
+        """Run ``_generate_sync`` once, recovering from native crashes via reload.
+
+        A real native crash typically surfaces as a Python ``RuntimeError`` or
+        ``ValueError`` from the MLX C++ binding; in rarer cases the generator
+        yields nothing and returns. Both leave the runtime in a poisoned
+        state, so we drop the model, clear the Metal cache, reload, and try
+        again exactly once. If the retry also fails, the exception is
+        re-raised with an actionable message so ``run_generation`` writes a
+        user-visible ``failed`` state instead of leaving the row orphaned.
+        """
+        try:
+            return await self._run_on_mlx_thread(self._generate_sync, text, voice_prompt, language, seed)
+        except Exception as exc:
+            logger.warning(
+                "MLX TTS inference raised %s; resetting Metal runtime and retrying once: %s",
+                type(exc).__name__,
+                exc,
+            )
+            await self._run_on_mlx_thread(self._reset_mlx_runtime)
+            # Force the next load to redownload/relink weights from disk so
+            # the cached Metal buffers are not reused.
+            await self.load_model_async(None)
+            try:
+                return await self._run_on_mlx_thread(self._generate_sync, text, voice_prompt, language, seed)
+            except Exception as retry_exc:
+                logger.error(
+                    "MLX TTS inference failed after Metal runtime reset: %s",
+                    retry_exc,
+                    exc_info=True,
+                )
+                raise RuntimeError(
+                    f"MLX 推理失败(模型推理阶段): {retry_exc}"
+                ) from retry_exc
+
     async def generate(
         self,
         text: str,
@@ -212,74 +270,82 @@ class MLXTTSBackend:
 
         logger.info("Generating audio for text: %s", text)
 
-        def _generate_sync():
-            """Run synchronous generation in thread pool."""
-            # MLX generate() returns a generator yielding GenerationResult objects
-            audio_chunks = []
-            sample_rate = 24000
-            lang = LANGUAGE_CODE_TO_NAME.get(language, "auto")
+        # ``instruct`` is accepted for API parity with other engines but is
+        # currently a no-op on the MLX Qwen path; warn loudly so future
+        # regressions stay traceable.
+        if instruct:
+            logger.warning("MLX Qwen backend ignores the 'instruct' argument; got: %s", instruct)
 
-            # Set seed if provided (MLX uses numpy random)
-            if seed is not None:
-                import mlx.core as mx
+        audio, sample_rate = await self._generate_with_native_retry(text, voice_prompt, language, seed)
 
-                np.random.seed(seed)
-                mx.random.seed(seed)
+        return audio, sample_rate
 
-            # Extract voice prompt info
-            ref_audio = voice_prompt.get("ref_audio") or voice_prompt.get("ref_audio_path")
-            ref_text = voice_prompt.get("ref_text", "")
+    def _generate_sync(self, text: str, voice_prompt: dict, language: str, seed: Optional[int]) -> Tuple[np.ndarray, int]:
+        """Run synchronous generation on the MLX-owned thread."""
+        # MLX generate() returns a generator yielding GenerationResult objects
+        audio_chunks: list = []
+        sample_rate = 24000
+        lang = LANGUAGE_CODE_TO_NAME.get(language, "auto")
 
-            # Validate that the audio file exists
-            if ref_audio and not Path(ref_audio).exists():
-                logger.warning("Audio file not found: %s", ref_audio)
-                logger.warning("This may be due to a cached voice prompt referencing a deleted temp file.")
-                logger.warning("Regenerating without voice prompt.")
-                ref_audio = None
+        # Set seed if provided (MLX uses numpy random)
+        if seed is not None:
+            import mlx.core as mx
 
-            # Inference runs with the process's default HF_HUB_OFFLINE
-            # state. Forcing offline here (previously used to avoid lazy
-            # mlx_audio lookups hanging when the network drops mid-inference,
-            # issue #462) regressed online users because libraries make
-            # legitimate metadata calls during generation.
-            try:
-                if ref_audio:
-                    # Check if generate accepts ref_audio parameter
-                    import inspect
+            np.random.seed(seed)
+            mx.random.seed(seed)
 
-                    sig = inspect.signature(self.model.generate)
-                    if "ref_audio" in sig.parameters:
-                        # Generate with voice cloning
-                        for result in self.model.generate(text, ref_audio=ref_audio, ref_text=ref_text, lang_code=lang):
-                            audio_chunks.append(np.array(result.audio))
-                            sample_rate = result.sample_rate
-                    else:
-                        # Fallback: generate without voice cloning
-                        for result in self.model.generate(text, lang_code=lang):
-                            audio_chunks.append(np.array(result.audio))
-                            sample_rate = result.sample_rate
+        # Extract voice prompt info
+        ref_audio = voice_prompt.get("ref_audio") or voice_prompt.get("ref_audio_path")
+        ref_text = voice_prompt.get("ref_text", "")
+
+        # Validate that the audio file exists
+        if ref_audio and not Path(ref_audio).exists():
+            logger.warning("Audio file not found: %s", ref_audio)
+            logger.warning("This may be due to a cached voice prompt referencing a deleted temp file.")
+            logger.warning("Regenerating without voice prompt.")
+            ref_audio = None
+
+        # Inference runs with the process's default HF_HUB_OFFLINE
+        # state. Forcing offline here (previously used to avoid lazy
+        # mlx_audio lookups hanging when the network drops mid-inference,
+        # issue #462) regressed online users because libraries make
+        # legitimate metadata calls during generation.
+        try:
+            if ref_audio:
+                # Check if generate accepts ref_audio parameter
+                import inspect
+
+                sig = inspect.signature(self.model.generate)
+                if "ref_audio" in sig.parameters:
+                    # Generate with voice cloning
+                    for result in self.model.generate(text, ref_audio=ref_audio, ref_text=ref_text, lang_code=lang):
+                        audio_chunks.append(np.array(result.audio))
+                        sample_rate = result.sample_rate
                 else:
-                    # No voice prompt, generate normally
+                    # Fallback: generate without voice cloning
                     for result in self.model.generate(text, lang_code=lang):
                         audio_chunks.append(np.array(result.audio))
                         sample_rate = result.sample_rate
-            except Exception as e:
-                # If voice cloning fails, try without it
-                logger.warning("Voice cloning failed, generating without voice prompt: %s", e)
+            else:
+                # No voice prompt, generate normally
                 for result in self.model.generate(text, lang_code=lang):
                     audio_chunks.append(np.array(result.audio))
                     sample_rate = result.sample_rate
+        except Exception as e:
+            # If voice cloning fails, try without it
+            logger.warning("Voice cloning failed, generating without voice prompt: %s", e)
+            for result in self.model.generate(text, lang_code=lang):
+                audio_chunks.append(np.array(result.audio))
+                sample_rate = result.sample_rate
 
-            # Concatenate all chunks
-            if audio_chunks:
-                audio = np.concatenate([np.asarray(chunk, dtype=np.float32) for chunk in audio_chunks])
-            else:
-                # Fallback: empty audio
-                audio = np.array([], dtype=np.float32)
-
-            return audio, sample_rate
-
-        audio, sample_rate = await self._run_on_mlx_thread(_generate_sync)
+        # Concatenate all chunks
+        if audio_chunks:
+            audio = np.concatenate([np.asarray(chunk, dtype=np.float32) for chunk in audio_chunks])
+        else:
+            # A native MLX crash can silently swallow every generated chunk
+            # without raising. Treat an empty result as a hard failure so the
+            # caller can retry or surface a user-visible message.
+            raise RuntimeError("MLX generate returned no audio chunks")
 
         return audio, sample_rate
 

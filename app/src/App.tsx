@@ -94,7 +94,12 @@ function MainApp() {
   const [serverReady, setServerReady] = useState(false);
   const [startupError, setStartupError] = useState<string | null>(null);
   const [loadingMessageIndex, setLoadingMessageIndex] = useState(0);
+  // When non-null, replaces the cycling loading message with a retry hint.
+  const [startupRetryHint, setStartupRetryHint] = useState<string | null>(null);
   const serverStartingRef = useRef(false);
+  // Holds a cancel function for any in-flight startServer retry chain so the
+  // effect cleanup can abort pending timers if the component unmounts.
+  const cancelStartRetryRef = useRef<(() => void) | null>(null);
 
   // Automatically check for app updates on startup and show toast notifications
   useAutoUpdater({ checkOnMount: true, showToast: true });
@@ -182,45 +187,120 @@ function MainApp() {
       })
       .catch((error) => {
         console.error('Failed to auto-start server:', error);
-        serverStartingRef.current = false;
         window.__voiceboxServerStartedByApp = false;
 
-        // Only fall back to health-check polling when the error indicates the
-        // port is occupied (likely an external server). For real failures
-        // (missing sidecar, signing issues, etc.) surface the error immediately.
-        if (!isPortInUseError(error)) {
-          const msg = error instanceof Error ? error.message : String(error);
-          console.error('Real startup failure — not polling:', msg);
-          setStartupError(toChineseErrorMessage(error, '服务器启动失败，请检查本地服务配置。'));
+        // Port-in-use errors mean something is already listening on 17493.
+        // Fall back to health-check polling — the running process may be a
+        // legitimate external server (e.g. started via python/uvicorn/Docker)
+        // that just hasn't reported ready yet.
+        if (isPortInUseError(error)) {
+          // Fall back to polling: the server may already be running externally
+          // (e.g. started via python/uvicorn/Docker). Poll the health endpoint
+          // until it responds with a valid Voicebox payload, then transition to
+          // the main UI.
+          console.log('Falling back to health-check polling...');
+          const pollInterval = setInterval(async () => {
+            try {
+              const health = await apiClient.getHealth();
+              if (!isVoiceboxHealthResponse(health)) {
+                console.log('Health response is not from a Voicebox server, keep polling...');
+                return;
+              }
+              console.log('External Voicebox server detected via health check');
+              clearInterval(pollInterval);
+              setServerReady(true);
+            } catch {
+              // Server not ready yet, keep polling
+            }
+          }, 2000);
+
+          // Stop polling after 2 minutes and surface the failure
+          setTimeout(() => {
+            clearInterval(pollInterval);
+            serverStartingRef.current = false;
+            setStartupError('两分钟内无法连接 Voicebox 服务器。请确认服务器正在运行，然后重试。');
+          }, 120_000);
           return;
         }
 
-        // Fall back to polling: the server may already be running externally
-        // (e.g. started via python/uvicorn/Docker). Poll the health endpoint
-        // until it responds with a valid Voicebox payload, then transition to
-        // the main UI.
-        console.log('Falling back to health-check polling...');
-        const pollInterval = setInterval(async () => {
-          try {
-            const health = await apiClient.getHealth();
-            if (!isVoiceboxHealthResponse(health)) {
-              console.log('Health response is not from a Voicebox server, keep polling...');
-              return;
-            }
-            console.log('External Voicebox server detected via health check');
-            clearInterval(pollInterval);
-            setServerReady(true);
-          } catch {
-            // Server not ready yet, keep polling
-          }
-        }, 2000);
+        // Real startup failure (spawn rejection, sidecar timeout, signing
+        // issue, etc.). The bundled sidecar is usually slow on first launch
+        // (PyInstaller extracts + torch/MLX import can take 60-90s) and the
+        // Tauri command's own 120s wait may race the React startup, so retry
+        // a few times before giving up. This avoids leaving the user stuck
+        // on the error screen after a transient failure (e.g. MLX runtime
+        // poisoned in a previous run, or a brief HF Hub hiccup during the
+        // first import).
+        const maxAttempts = 3;
+        const retryDelayMs = 3000;
+        let attempt = 1;
+        let retryTimer: ReturnType<typeof setTimeout> | null = null;
+        let cancelled = false;
 
-        // Stop polling after 2 minutes and surface the failure
-        setTimeout(() => {
-          clearInterval(pollInterval);
-          serverStartingRef.current = false;
-          setStartupError('两分钟内无法连接 Voicebox 服务器。请确认服务器正在运行，然后重试。');
-        }, 120_000);
+        const tryAgain = () => {
+          if (cancelled) return;
+          if (attempt >= maxAttempts) {
+            console.error('Real startup failure — giving up after retries');
+            serverStartingRef.current = false;
+            setStartupRetryHint(null);
+            setStartupError(
+              toChineseErrorMessage(error, '服务器启动失败，请检查本地服务配置。'),
+            );
+            return;
+          }
+          attempt += 1;
+          console.log(
+            `Retrying startServer (attempt ${attempt}/${maxAttempts}) in ${retryDelayMs / 1000}s...`,
+          );
+          setStartupRetryHint(
+            `服务器启动遇到问题,正在重试 (${attempt}/${maxAttempts})…`,
+          );
+          retryTimer = setTimeout(async () => {
+            if (cancelled) return;
+            try {
+              const serverUrl = await platform.lifecycle.startServer(isRemote, customModelsDir);
+              console.log('Server is ready at:', serverUrl);
+              useServerStore.getState().setServerUrl(serverUrl);
+              setServerReady(true);
+              window.__voiceboxServerStartedByApp = true;
+              setStartupRetryHint(null);
+            } catch (retryError) {
+              console.error(`startServer attempt ${attempt} failed:`, retryError);
+              if (isPortInUseError(retryError)) {
+                // Port came up while we were retrying — switch to polling path.
+                cancelled = true;
+                if (retryTimer) clearTimeout(retryTimer);
+                setStartupRetryHint(null);
+                const pollInterval = setInterval(async () => {
+                  try {
+                    const health = await apiClient.getHealth();
+                    if (!isVoiceboxHealthResponse(health)) return;
+                    clearInterval(pollInterval);
+                    setServerReady(true);
+                  } catch {
+                    /* keep polling */
+                  }
+                }, 2000);
+                setTimeout(() => {
+                  clearInterval(pollInterval);
+                  serverStartingRef.current = false;
+                  setStartupError('两分钟内无法连接 Voicebox 服务器。请确认服务器正在运行，然后重试。');
+                }, 120_000);
+                return;
+              }
+              tryAgain();
+            }
+          }, retryDelayMs);
+        };
+
+        // Stash the cancel handle on the ref so the effect cleanup can stop
+        // pending retries when the component unmounts.
+        cancelStartRetryRef.current = () => {
+          cancelled = true;
+          if (retryTimer) clearTimeout(retryTimer);
+        };
+
+        tryAgain();
       });
 
     // Cleanup: stop server on actual unmount (not StrictMode remount)
@@ -228,6 +308,11 @@ function MainApp() {
     return () => {
       // Window close event handles server shutdown based on setting
       serverStartingRef.current = false;
+      // Abort any pending startServer retry chain from a previous run.
+      if (cancelStartRetryRef.current) {
+        cancelStartRetryRef.current();
+        cancelStartRetryRef.current = null;
+      }
     };
     // Empty dependency array - platform is stable from context, only run once
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -285,14 +370,19 @@ function MainApp() {
               </button>
             </div>
           ) : (
-            <div className="animate-fade-in-delayed">
+            <div className="animate-fade-in-delayed space-y-2">
               <ShinyText
-                text={LOADING_MESSAGES[loadingMessageIndex]}
+                text={startupRetryHint ?? LOADING_MESSAGES[loadingMessageIndex]}
                 className="text-lg font-medium text-muted-foreground"
                 speed={2}
                 color="hsl(var(--muted-foreground))"
                 shineColor="hsl(var(--foreground))"
               />
+              {startupRetryHint ? (
+                <p className="text-xs text-muted-foreground/70">
+                  这通常是因为上次会话的 MLX runtime 状态需要重置
+                </p>
+              ) : null}
             </div>
           )}
         </div>
