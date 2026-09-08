@@ -307,6 +307,34 @@ async def run_generation(
         # desktop shows an actionable hint instead of an opaque stack trace.
         elif "MLX 推理失败" in error or isinstance(e, RuntimeError) and getattr(e, "__mlx_native__", False):
             error = "模型推理失败(MLX runtime),请重试或重启 Voicebox"
+        else:
+            # The PyInstaller sidecar bundles every backend module in a single
+            # zlib-compressed PYZ. When that archive is corrupted, the import
+            # call inside ``get_tts_backend_for_engine`` raises ``zlib.error``
+            # before inference ever starts. The raw message ("Error -3 while
+            # decompressing data: incorrect header check") is not actionable
+            # for users and changes between Python versions, so map the whole
+            # family to a single stable diagnostic. The descriptor carried in
+            # ``failure_subtype`` lets support tell zlib corruption apart from
+            # a genuinely missing dependency without widening the user copy.
+            from .generation_diagnostics import (
+                classify_binary_extraction_failure,
+                write_generation_diagnostic,
+            )
+
+            failure_subtype = classify_binary_extraction_failure(e)
+            if failure_subtype is not None:
+                diagnostic = write_generation_diagnostic(
+                    kind="binary_module_extraction_failed",
+                    generation_id=generation_id,
+                    engine=engine,
+                    model_size=model_size,
+                    progress_current=None,
+                    progress_total=None,
+                    lifecycle="unexpected",
+                    failure_subtype=failure_subtype,
+                )
+                error = diagnostic.error_code
         try:
             failed_status = await history.update_generation_status(
                 generation_id=generation_id,

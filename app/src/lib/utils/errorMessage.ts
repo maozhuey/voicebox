@@ -42,9 +42,7 @@ export function toChineseErrorMessage(error: unknown, fallback = '操作失败�
     const diagnosticId = raw.match(/CAPTURE_REFINEMENT_DIAGNOSTIC:([A-Za-z0-9-]+)/)?.[1];
     return `精修失败，请重试。诊断编号：${diagnosticId}`;
   }
-  match = raw.match(
-    /^GENERATION_TERMINAL_STATUS_MISSING:([A-Za-z0-9-]+)(?::(\d+)\/(\d+))?$/,
-  );
+  match = raw.match(/^GENERATION_TERMINAL_STATUS_MISSING:([A-Za-z0-9-]+)(?::(\d+)\/(\d+))?$/);
   if (match) {
     const [, diagnosticId, current, total] = match;
     const progress = current && total ? `第 ${current}/${total} 段` : '完成前';
@@ -61,6 +59,14 @@ export function toChineseErrorMessage(error: unknown, fallback = '操作失败�
     const [, diagnosticId, current, total] = match;
     const progress = current && total ? `（第 ${current}/${total} 段）` : '';
     return `本地服务异常结束，合成已中断${progress}，请重试。诊断编号：${diagnosticId}`;
+  }
+  // Stable code for PyInstaller PYZ corruption / import failures inside the
+  // bundled sidecar binary. The raw ``zlib.error`` text and import paths are
+  // never safe to show; the diagnostic id is enough for support to correlate.
+  match = raw.match(/^BINARY_MODULE_EXTRACTION_FAILED:([A-Za-z0-9-]+)$/);
+  if (match) {
+    const [, diagnosticId] = match;
+    return `Voicebox 安装包损坏，无法加载该声音引擎。请重新安装 Voicebox 后重试。诊断编号：${diagnosticId}`;
   }
   if (/Could not decode .*audio/i.test(raw)) {
     return '录音损坏或格式不受支持，请重新录制后再试。';
