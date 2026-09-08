@@ -7,6 +7,23 @@
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-09-08
+
+**v0.6.0 字面值漂移修复与版本基础设施整理。** v0.6.0 tag 已在 3e9ba5b 落地，但当时未通过 `bumpversion` 统一推进字面值，导致 6 处产品版本字面值仍停留在 0.5.1。本次发版将全部产品版本字面值原子推进到 v0.7.0，并补齐 gitignore 的临时文件/工具本地状态/营销素材规则。
+
+### 版本基础设施
+
+- **同步 v0.6.0 字面值漂移。** `.bumpversion.cfg`、`package.json`、`docs/openapi.json`、`docs/PROJECT_STATUS.md`、`landing/src/components/CapturesMockup.tsx`、`bun.lock` 4 个 `@voicebox/*` workspace 包的 version 字段从 `0.5.1` 推进到与 v0.6.0 tag 一致。
+- **统一推进到 v0.7.0。** 在补齐 v0.6.0 漂移的基础上，所有产品版本字面值（`.bumpversion.cfg`、根及 5 个 workspace 的 `package.json`、`tauri/src-tauri/Cargo.toml` 与 `tauri.conf.json`、`backend/__init__.py`、`docs/openapi.json`、`docs/PROJECT_STATUS.md`、`CapturesMockup.tsx`、`bun.lock`）原子更新到 `0.7.0`。
+
+### 工程卫生
+
+- **gitignore 补全。** 新增 `**/vite.config.ts.timestamp-*.mjs`（Vite 6 esbuild 预编译临时文件）、`.workbuddy/`（workbuddy 工具本地记忆）、`docs/assets/promo/`（产品营销视频/动图不入库）。
+
+## [0.6.0] - 2026-09-07
+
+**稳定文本生成、跨 session 服务管理与加载屏幕。** v0.6.0 tag 于 3e9ba5b 落地，但当时未跑 `bumpversion`，相关字面值漂移已在 v0.7.0 一并修复。原始改动记录（来自 3e9ba5b `fix: 稳定文本生成、跨 session 服务管理与加载屏幕`）请见 [v0.6.0 commit](https://github.com/maozhuey/voicebox/commit/3e9ba5b)。
+
 ## [0.5.1] - 2026-09-07
 
 **A reliability release for local generation and dictation.** Voicebox now
@@ -788,7 +805,9 @@ The first public release of Voicebox — an open-source voice synthesis studio p
 
 Tauri v2, React, TypeScript, Tailwind CSS, FastAPI, Qwen3-TTS, Whisper, SQLite
 
-[Unreleased]: https://github.com/jamiepine/voicebox/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/jamiepine/voicebox/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/jamiepine/voicebox/compare/v0.6.0...v0.7.0
+[0.6.0]: https://github.com/jamiepine/voicebox/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/jamiepine/voicebox/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/jamiepine/voicebox/compare/v0.4.5...v0.5.0
 [0.4.5]: https://github.com/jamiepine/voicebox/compare/v0.4.4...v0.4.5
